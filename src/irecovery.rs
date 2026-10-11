@@ -1,8 +1,12 @@
-//! `irecovery` ikili cagri sarmalayicisi.
+//! `irecovery` binary wrapper.
 //!
-//! libimobiledevice kurulumuyla gelen `irecovery` araci, DFU/kurtarma modundaki
-//! cihazdan CPID, BDID, ECID ve MODEL gibi bilgileri okur.  Bulunamazsa ust
-//! katman USB tarafindan cikarilan bilgilerle yetinir.
+//! The `irecovery` tool (shipped with libimobiledevice) reads low-level device
+//! information such as CPID, BDID, ECID and MODEL from a device in DFU or
+//! recovery mode. This is used to identify the device precisely (see
+//! [`crate::database`]).
+//!
+//! If `irecovery` is not available, this layer silently returns `None` and the
+//! caller falls back to USB-only detection.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -18,7 +22,7 @@ pub struct IRecoveryInfo {
     pub srtg: String,
 }
 
-/// `irecovery` ikilisini bulur (ortam degiskeni > toolchain > PATH).
+/// Locates the `irecovery` binary (env var > toolchain > PATH).
 pub fn find_irecovery() -> Option<PathBuf> {
     if let Some(env) = std::env::var_os("PEAR_IRECOVERY") {
         let path = PathBuf::from(env);
@@ -49,9 +53,9 @@ fn which(program: &str) -> Option<PathBuf> {
     None
 }
 
-/// `irecovery -q` ciktisini ayristirir.
+/// Parses the output of `irecovery -q`.
 ///
-/// Degerler `0x` onekli ya da oneksiz hex olabilir (or. `CPID: 0x8103`).
+/// Values may be prefixed with `0x` or not (e.g. `CPID: 0x8103`).
 pub fn parse_query_output(text: &str) -> IRecoveryInfo {
     let mut info = IRecoveryInfo::default();
     for line in text.lines() {
@@ -86,7 +90,7 @@ fn parse_hex_u64(value: &str) -> Option<u64> {
     u64::from_str_radix(strip_hex_prefix(value.trim()), 16).ok()
 }
 
-/// Bagli cihazi sorgular; basarisizlikta `None` dondurur.
+/// Queries the attached device; returns `None` on failure.
 pub fn query(ecid: Option<u64>) -> Option<IRecoveryInfo> {
     let tool = find_irecovery()?;
     let mut cmd = Command::new(tool);
@@ -94,7 +98,7 @@ pub fn query(ecid: Option<u64>) -> Option<IRecoveryInfo> {
     if let Some(ecid) = ecid {
         cmd.arg("-e").arg(format!("0x{:x}", ecid));
     }
-    // Toolchain kutuphanelerini bulmak icin LD_LIBRARY_PATH ayarla.
+    // Point at the toolchain libraries via LD_LIBRARY_PATH.
     let lib = config::lib_dir();
     let mut ld = lib.to_string_lossy().to_string();
     if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {

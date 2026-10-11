@@ -1,10 +1,10 @@
-//! Kucuk HTTP yardimcilari (ureq tabanli).
+//! Small HTTP helpers built on `ureq`.
 
 use std::time::Duration;
 
 use crate::config;
 
-/// Basit GET istegi; govdeyi metin olarak dondurur.
+/// Simple GET request; returns the body as text.
 pub fn get_string(url: &str, timeout_secs: u64) -> Result<String, String> {
     let resp = ureq::get(url)
         .set("User-Agent", config::USER_AGENT)

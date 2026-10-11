@@ -1,7 +1,7 @@
-//! ipsw.me API istemcisi (signed firmware listeleri).
+//! ipsw.me API client (signed firmware lists).
 //!
-//! Apple Silicon Mac'ler dahil tum cihazlar icin `/v4/device/{id}` uclu
-//! kullanilir; yanit icindeki `firmwares` dizisi okunur.
+//! For all devices, including Apple Silicon Macs, the `/v4/device/{id}`
+//! endpoint is used and its `firmwares` array is read.
 
 use serde::{Deserialize, Serialize};
 
@@ -46,7 +46,7 @@ struct DeviceResponse {
     firmwares: Vec<RawFirmware>,
 }
 
-/// Bir cihaz tanimlayicisi icin tum firmware surumlerini dondurur.
+/// Returns all firmware versions for a device identifier.
 pub fn get_firmwares(identifier: &str, timeout_secs: u64) -> Vec<Firmware> {
     let url = format!("{}/device/{}", config::IPSW_API_BASE, identifier);
     let body = match net::get_string(&url, timeout_secs) {
@@ -75,7 +75,7 @@ pub fn get_firmwares(identifier: &str, timeout_secs: u64) -> Vec<Firmware> {
         .collect()
 }
 
-/// En guncel imzali (signed) firmware'i dondurur.
+/// Returns the latest signed firmware.
 #[allow(dead_code)]
 pub fn latest_signed(identifier: &str, timeout_secs: u64) -> Option<Firmware> {
     let mut firmwares = get_firmwares(identifier, timeout_secs);

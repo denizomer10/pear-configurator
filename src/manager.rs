@@ -1,7 +1,7 @@
-//! Ust seviye orkestrasyon: cihaz algilama ve is (indirme/restore) yonetimi.
+//! High-level orchestration: device detection and job (download/restore) management.
 //!
-//! Arayuz (Slint) bu modulu yalnizca okur: :meth:`Manager::snapshot` cagirip
-//! durumu ekrana yansitir ve butonlar araciligiyla is baslatir.
+//! The UI (Slint) only reads this module: it calls [`Manager::snapshot`] to
+//! reflect state on screen and starts jobs through the buttons.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -114,7 +114,7 @@ impl Manager {
         self.job_cancel.store(true, Ordering::Relaxed);
     }
 
-    // -- algilama --------------------------------------------------------
+    // -- detection -------------------------------------------------------
     fn detect_loop(self: Arc<Self>) {
         while !self.stop.load(Ordering::Relaxed) {
             self.poll_device();
@@ -182,7 +182,7 @@ impl Manager {
         }
     }
 
-    // -- okuma -----------------------------------------------------------
+    // -- reading ---------------------------------------------------------
     pub fn snapshot(&self) -> Snapshot {
         let (device, irecv, entry, job) = {
             let inner = match self.inner.lock() {
@@ -239,7 +239,7 @@ impl Manager {
         }
     }
 
-    /// Gecerli cihaz icin firmware listesi (imzali ve yeni surumler basta).
+    /// Firmware list for the current device (signed and newer versions first).
     pub fn firmware_list(&self) -> Vec<Firmware> {
         let identifier = match self.inner.lock() {
             Ok(inner) => match inner.entry.as_ref() {
@@ -280,7 +280,7 @@ impl Manager {
         ))
     }
 
-    // -- isler -----------------------------------------------------------
+    // -- jobs ------------------------------------------------------------
     fn begin_job(self: &Arc<Self>, kind: &str) -> bool {
         if self
             .job_running
@@ -328,14 +328,14 @@ impl Manager {
         self.job_cancel.store(true, Ordering::Relaxed);
     }
 
-    /// Gecerli cihaz icin en guncel imzali firmware'i indirir (varsa atlar).
-    /// Komut satirindan on indirme ve dogrulama icin kullanilir.
+    /// Downloads the latest signed firmware for the current device (skips if
+    /// already present). Used for headless pre-download and verification.
     pub fn download_latest(self: &Arc<Self>) -> Result<std::path::PathBuf, String> {
         let fw = self
             .firmware_list()
             .into_iter()
             .next()
-            .ok_or_else(|| "Firmware bulunamadi".to_string())?;
+            .ok_or_else(|| "Firmware not found".to_string())?;
         let dest = self.ipsw_path_for(&fw);
         if dest.exists() && download::verify_sha256(&dest, &fw.sha256) {
             return Ok(dest);
@@ -345,16 +345,16 @@ impl Manager {
         self.finish_job(
             if verified { "done" } else { "error" },
             if verified {
-                "Indirme tamamlandi"
+                "Download complete"
             } else {
-                "SHA-256 dogrulanamadi"
+                "SHA-256 verification failed"
             },
             Some(1.0),
         );
         if verified {
             Ok(dest)
         } else {
-            Err("SHA-256 dogrulanamadi".to_string())
+            Err("SHA-256 verification failed".to_string())
         }
     }
 
@@ -391,7 +391,7 @@ impl Manager {
         });
     }
 
-    /// Firmware'i indirir; SHA-256 dogrulanmissa `Ok(true)` doner.
+    /// Downloads a firmware; returns `Ok(true)` if the SHA-256 verifies.
     fn download_firmware(
         self: &Arc<Self>,
         fw: &Firmware,
@@ -399,7 +399,7 @@ impl Manager {
     ) -> Result<bool, String> {
         let last_milestone = AtomicU64::new(u64::MAX);
         self.update_job(|job| {
-            job.message = format!("{} indiriliyor", fw.version);
+            job.message = format!("Downloading {}", fw.version);
             job.detail = fw.filesize_human.clone();
             job.progress = 0.0;
         });
@@ -415,7 +415,7 @@ impl Manager {
             if last_milestone.swap(milestone, Ordering::Relaxed) != milestone {
                 self.update_job(|job| {
                     job.progress = pct.min(1.0);
-                    job.message = format!("{} indiriliyor", fw.version);
+                    job.message = format!("Downloading {}", fw.version);
                     job.detail = format!(
                         "{} / {}",
                         ipsw::human_size(done),
@@ -440,7 +440,7 @@ impl Manager {
             &note,
             &self.job_cancel,
         )?;
-        self.log_line(&format!("Indirildi: {}", result.path.display()));
+        self.log_line(&format!("Downloaded: {}", result.path.display()));
         Ok(result.verified)
     }
 
@@ -459,7 +459,7 @@ impl Manager {
         } else if let Some(fw) = &fw {
             self.ipsw_path_for(fw)
         } else {
-            self.finish_job("error", "IPSW belirlenemedi", None);
+            self.finish_job("error", "IPSW could not be determined", None);
             return;
         };
 
@@ -467,22 +467,22 @@ impl Manager {
             let fw = match &fw {
                 Some(fw) => fw,
                 None => {
-                    self.finish_job("error", "Indirilecek firmware bulunamadi", None);
+                    self.finish_job("error", "No firmware available to download", None);
                     return;
                 }
             };
             match self.download_firmware(fw, &path) {
                 Ok(true) => {}
                 Ok(false) => {
-                    self.finish_job("error", "Indirme dogrulanamadi", None);
+                    self.finish_job("error", "Download could not be verified", None);
                     return;
                 }
                 Err(e) if e == download::CANCELLED => {
-                    self.finish_job("cancelled", "Indirme iptal edildi", None);
+                    self.finish_job("cancelled", "Download cancelled", None);
                     return;
                 }
                 Err(e) => {
-                    self.finish_job("error", &format!("Indirme hatasi: {}", e), None);
+                    self.finish_job("error", &format!("Download error: {}", e), None);
                     return;
                 }
             }
@@ -511,14 +511,14 @@ impl Manager {
         };
 
         self.update_job(|job| {
-            job.message = "Restore baslatiliyor...".to_string();
+            job.message = "Starting restore...".to_string();
             job.progress = 0.0;
         });
         self.log_line(&format!("IPSW: {}", path.display()));
         self.log_line(if erase {
-            "Mod: FLAS SIL (erase)"
+            "Mode: ERASE (wipe)"
         } else {
-            "Mod: VERIYI KORU (update)"
+            "Mode: KEEP DATA (update)"
         });
 
         let last_milestone = AtomicU64::new(u64::MAX);
@@ -546,16 +546,16 @@ impl Manager {
         };
 
         match restore::run(&options, &on_event, &self.job_cancel) {
-            Ok(0) => self.finish_job("done", "Restore basariyla tamamlandi", Some(1.0)),
+            Ok(0) => self.finish_job("done", "Restore completed successfully", Some(1.0)),
             Ok(code) => self.finish_job(
                 "error",
-                &format!("Restore basarisiz (cikis kodu {})", code),
+                &format!("Restore failed (exit code {})", code),
                 None,
             ),
             Err(e) if e == restore::CANCELLED => {
-                self.finish_job("cancelled", "Restore iptal edildi", None)
+                self.finish_job("cancelled", "Restore cancelled", None)
             }
-            Err(e) => self.finish_job("error", &format!("Restore hatasi: {}", e), None),
+            Err(e) => self.finish_job("error", &format!("Restore error: {}", e), None),
         }
     }
 }

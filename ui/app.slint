@@ -1,6 +1,6 @@
 import { ComboBox, ScrollView } from "std-widgets.slint";
 
-// Küçük durum rozeti (araç / bilgi pilleri).
+// Small status pill (tool / info badges).
 component Pill inherits Rectangle {
     in property <string> label;
     in property <color> dot-color: #616a8c;
@@ -32,7 +32,7 @@ component Pill inherits Rectangle {
     }
 }
 
-// Büyük işlem butonu (başlık + açıklama).
+// Large action button (title + subtitle).
 component ActionButton inherits Rectangle {
     in property <string> title;
     in property <string> subtitle;
@@ -81,14 +81,14 @@ export component AppWindow inherits Window {
     background: #0b0d17;
     default-font-size: 13px;
 
-    // Cihaz
+    // Device
     in-out property <bool> device-connected: false;
-    in-out property <string> device-name: "Cihaz bekleniyor…";
+    in-out property <string> device-name: "Waiting for device…";
     in-out property <string> mode-label: "—";
     in-out property <color> mode-color: #6d8bff;
     in-out property <[string]> specs: [];
 
-    // Araçlar
+    // Tools
     in-out property <string> tools-summary: "";
     in-out property <bool> tools-ready: false;
 
@@ -96,14 +96,14 @@ export component AppWindow inherits Window {
     in property <[string]> firmware-model: [];
     in-out property <int> firmware-index: 0;
 
-    // İlerleme
+    // Progress
     in-out property <float> progress: 0.0;
     in-out property <string> progress-pct: "0%";
-    in-out property <string> progress-label: "Hazır";
+    in-out property <string> progress-label: "Ready";
     in-out property <string> progress-detail: "";
     in-out property <bool> job-running: false;
 
-    // Günlük (en yeni üstte)
+    // Log (newest first)
     in property <[string]> log-lines: [];
 
     in-out property <bool> can-restore: false;
@@ -121,7 +121,7 @@ export component AppWindow inherits Window {
         padding: 22px;
         spacing: 18px;
 
-        // ---- Başlık ----
+        // ---- Header ----
         HorizontalLayout {
             spacing: 14px;
             Rectangle {
@@ -142,7 +142,7 @@ export component AppWindow inherits Window {
                 alignment: center;
                 spacing: 2px;
                 Text { text: "PE Configurator"; color: #e9ecf8; font-size: 21px; font-weight: 700; }
-                Text { text: "Apple cihaz restore merkezi"; color: #9aa3c4; font-size: 12px; }
+                Text { text: "Apple device restore center"; color: #9aa3c4; font-size: 12px; }
             }
             Rectangle { horizontal-stretch: 1; }
             HorizontalLayout {
@@ -152,11 +152,11 @@ export component AppWindow inherits Window {
             }
         }
 
-        // ---- Orta: cihaz + restore ----
+        // ---- Middle: device + restore ----
         HorizontalLayout {
             spacing: 18px;
 
-            // Cihaz paneli
+            // Device panel
             Rectangle {
                 width: 46%;
                 height: 330px;
@@ -169,10 +169,10 @@ export component AppWindow inherits Window {
                     padding: 20px;
                     spacing: 16px;
 
-                    Text { text: "BAĞLI CİHAZ"; color: #9aa3c4; font-size: 12px; font-weight: 600; }
+                    Text { text: "CONNECTED DEVICE"; color: #9aa3c4; font-size: 12px; font-weight: 600; }
 
                     if !root.device-connected: Text {
-                        text: "Cihaz bekleniyor…\nDFU ya da kurtarma moduna alın";
+                        text: "Waiting for device…\nPut it into DFU or recovery mode";
                         color: #616a8c;
                         font-size: 14px;
                         horizontal-alignment: center;
@@ -187,7 +187,7 @@ export component AppWindow inherits Window {
                         HorizontalLayout {
                             spacing: 14px;
 
-                            // Basit cihaz ikonu
+                            // Simple device icon
                             Rectangle {
                                 width: 56px;
                                 height: 56px;
@@ -226,7 +226,7 @@ export component AppWindow inherits Window {
                 }
             }
 
-            // Restore paneli
+            // Restore panel
             Rectangle {
                 horizontal-stretch: 1;
                 height: 330px;
@@ -240,7 +240,7 @@ export component AppWindow inherits Window {
                     spacing: 12px;
 
                     Text { text: "RESTORE"; color: #9aa3c4; font-size: 12px; font-weight: 600; }
-                    Text { text: "Sürüm (IPSW)"; color: #9aa3c4; font-size: 12px; }
+                    Text { text: "Version (IPSW)"; color: #9aa3c4; font-size: 12px; }
                     ComboBox {
                         model: root.firmware-model;
                         current-index <=> root.firmware-index;
@@ -251,16 +251,16 @@ export component AppWindow inherits Window {
                         spacing: 12px;
                         ActionButton {
                             horizontal-stretch: 1;
-                            title: "Flaşı Sil ve Kur";
-                            subtitle: "Tüm veriler silinir";
+                            title: "Erase & Install";
+                            subtitle: "All data will be erased";
                             base-color: @linear-gradient(135deg, #ff4d6d, #ff8a5c);
                             active: root.can-restore;
                             clicked => { root.erase-clicked(); }
                         }
                         ActionButton {
                             horizontal-stretch: 1;
-                            title: "Veriyi Koru";
-                            subtitle: "Güncelleme (revive)";
+                            title: "Keep Data";
+                            subtitle: "Update (revive)";
                             base-color: @linear-gradient(135deg, #3a4bb0, #5a3ab0);
                             active: root.can-restore;
                             clicked => { root.update-clicked(); }
@@ -294,7 +294,7 @@ export component AppWindow inherits Window {
                     if root.job-running: ActionButton {
                         width: 130px;
                         height: 40px;
-                        title: "İptal Et";
+                        title: "Cancel";
                         subtitle: "";
                         base-color: #ffffff12;
                         clicked => { root.cancel-clicked(); }
@@ -303,7 +303,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        // ---- Günlük ----
+        // ---- Log ----
         Rectangle {
             vertical-stretch: 1;
             border-radius: 14px;
@@ -319,8 +319,8 @@ export component AppWindow inherits Window {
                 HorizontalLayout {
                     padding-left: 14px;
                     padding-right: 14px;
-                    Text { text: "İŞLEM GÜNLÜĞÜ"; color: #9aa3c4; font-size: 11px; font-weight: 600; horizontal-stretch: 1; }
-                    Text { text: "temizle"; color: #616a8c; font-size: 11px; }
+                    Text { text: "LOG"; color: #9aa3c4; font-size: 11px; font-weight: 600; horizontal-stretch: 1; }
+                    Text { text: "clear"; color: #616a8c; font-size: 11px; }
                     TouchArea { mouse-cursor: pointer; clicked => { root.clear-log(); } }
                 }
                 ScrollView {
@@ -341,7 +341,7 @@ export component AppWindow inherits Window {
         }
     }
 
-    // ---- Onay penceresi ----
+    // ---- Confirmation dialog ----
     if root.confirm-visible: Rectangle {
         x: 0;
         y: 0;
@@ -362,9 +362,9 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 padding: 24px;
                 spacing: 14px;
-                Text { text: "Flaşı Sil ve Kur"; color: #e9ecf8; font-size: 19px; font-weight: 700; }
+                Text { text: "Erase & Install"; color: #e9ecf8; font-size: 19px; font-weight: 700; }
                 Text {
-                    text: "Cihazdaki tüm veriler kalıcı olarak silinecek ve seçili sürüm sıfırdan kurulacak. Bu işlem geri alınamaz.";
+                    text: "All data on the device will be permanently erased and the selected version will be installed from scratch. This cannot be undone.";
                     color: #9aa3c4;
                     font-size: 13px;
                     wrap: word-wrap;
@@ -376,15 +376,15 @@ export component AppWindow inherits Window {
                     ActionButton {
                         width: 130px;
                         height: 44px;
-                        title: "Vazgeç";
+                        title: "Cancel";
                         subtitle: "";
                         base-color: #ffffff12;
                         clicked => { root.confirm-cancel(); }
                     }
                     ActionButton {
-                        width: 140px;
+                        width: 150px;
                         height: 44px;
-                        title: "Sil ve Kur";
+                        title: "Erase & Install";
                         subtitle: "";
                         base-color: @linear-gradient(135deg, #ff4d6d, #ff8a5c);
                         clicked => { root.confirm-accept(); }

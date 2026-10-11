@@ -1,8 +1,8 @@
-//! Linux sysfs uzerinden USB cihaz taramasi ve mod belirleme.
+//! USB device scanning and mode detection via Linux sysfs.
 //!
-//! libusb/libusbmuxd kurulu olmasa bile calisir.  Apple cihazlari vendor ID
-//! (0x05ac) ile bulunur; mod bilgisi USB `product` tanimlayicisindan, yonga
-//! bilgisi ise DFU/kurtarma modundaki `serial` tanimlayicisindan cikarilir.
+//! Works even without libusb/libusbmuxd installed. Apple devices are found by
+//! vendor ID (0x05ac); the mode is derived from the USB `product` descriptor,
+//! and the chip info from the DFU/recovery `serial` descriptor.
 
 use std::fs;
 use std::path::Path;
@@ -13,7 +13,8 @@ use crate::config;
 
 const USB_DEVICES_DIR: &str = "/sys/bus/usb/devices";
 
-/// Bilinen Apple DFU / Recovery product ID'leri (urun stringi yoksa yedek).
+/// Known Apple DFU / Recovery / Restore product IDs (fallback when the product
+/// string is unavailable).
 const DFU_PIDS: [u16; 2] = [0x1227, 0x1222];
 const RECOVERY_PIDS: [u16; 4] = [0x1280, 0x1281, 0x1282, 0x1283];
 const RESTORE_PIDS: [u16; 3] = [0x1223, 0x1224, 0x1225];
@@ -38,12 +39,12 @@ pub struct UsbDevice {
 impl UsbDevice {
     pub fn mode_label(&self) -> &'static str {
         match self.mode.as_str() {
-            "dfu" => "DFU Modu",
-            "recovery" => "Kurtarma Modu",
-            "restore" => "Restore Modu",
-            "wtf" => "WTF Modu",
-            "normal" => "Normal Mod",
-            _ => "Bilinmeyen Mod",
+            "dfu" => "DFU Mode",
+            "recovery" => "Recovery Mode",
+            "restore" => "Restore Mode",
+            "wtf" => "WTF Mode",
+            "normal" => "Normal Mode",
+            _ => "Unknown Mode",
         }
     }
 
@@ -71,7 +72,7 @@ fn read_dec(path: &Path) -> Option<u32> {
     read_text(path).trim().parse::<u32>().ok()
 }
 
-/// Urun stringi ve PID'e gore cihaz modunu belirler.
+/// Determines the device mode from the product string and PID.
 pub fn classify_mode(product: &str, product_id: u16) -> &'static str {
     let text = product.to_lowercase();
     if text.contains("dfu") {
@@ -101,9 +102,9 @@ pub fn classify_mode(product: &str, product_id: u16) -> &'static str {
     "unknown"
 }
 
-/// DFU/kurtarma seri numarasindan yonga bilgisini ayristirir.
+/// Parses chip info from the DFU/recovery serial string.
 ///
-/// Ornek: `SDOM:01 CPID:8103 BDID:22 ECID:0019492036C0801E SRTG:[iBoot-5540.]`
+/// Example: `SDOM:01 CPID:8103 BDID:22 ECID:0019492036C0801E SRTG:[iBoot-5540.]`
 pub fn parse_serial_info(serial: &str) -> (Option<u32>, Option<u32>, Option<u64>, String) {
     let mut cpid = None;
     let mut bdid = None;
@@ -124,7 +125,7 @@ pub fn parse_serial_info(serial: &str) -> (Option<u32>, Option<u32>, Option<u64>
     (cpid, bdid, ecid, srtg)
 }
 
-/// Bagli tum Apple USB cihazlarini dondurur.
+/// Returns all attached Apple USB devices.
 pub fn scan() -> Vec<UsbDevice> {
     let base = Path::new(USB_DEVICES_DIR);
     let mut devices = Vec::new();
@@ -137,7 +138,7 @@ pub fn scan() -> Vec<UsbDevice> {
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if name.contains(':') {
-            continue; // arayuz girdisi
+            continue; // interface entry
         }
         let path = entry.path();
         let vendor_id = match read_hex(&path.join("idVendor")) {
@@ -188,7 +189,7 @@ pub fn scan() -> Vec<UsbDevice> {
     devices
 }
 
-/// Yalnizca DFU/Recovery/Restore modundaki cihazlari dondurur.
+/// Returns only devices in DFU/Recovery/Restore mode.
 #[allow(dead_code)]
 pub fn scan_restorable() -> Vec<UsbDevice> {
     scan().into_iter().filter(|d| d.is_restorable()).collect()

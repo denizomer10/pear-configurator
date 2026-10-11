@@ -1,4 +1,4 @@
-//! PE Configurator - giris noktasi (Slint masaustu arayuzu).
+//! PE Configurator - entry point (Slint desktop UI).
 
 mod config;
 mod database;
@@ -22,13 +22,13 @@ use crate::ipsw::Firmware;
 use crate::manager::{Manager, Snapshot};
 
 fn main() -> Result<(), slint::PlatformError> {
-    // Veri hattini (algilama + kimlik + firmware) GUI olmadan dogrulamak icin.
+    // Verify the data pipeline (detection + identity + firmware) without a GUI.
     if std::env::args().any(|a| a == "--selftest") {
         selftest();
         return Ok(());
     }
 
-    // IPSW'yi GUI olmadan indirip dogrulamak icin (on indirme).
+    // Download and verify the IPSW without a GUI (pre-download).
     if std::env::args().any(|a| a == "--download") {
         cmd_download();
         return Ok(());
@@ -39,7 +39,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let ui = AppWindow::new()?;
 
-    // --- Butonlar: onay diyalogu ve islem baslatma ---
+    // --- Buttons: confirmation dialog and starting jobs ---
     {
         let ui_weak = ui.as_weak();
         ui.on_erase_clicked(move || {
@@ -82,7 +82,7 @@ fn main() -> Result<(), slint::PlatformError> {
         ui.on_clear_log(move || manager.clear_log());
     }
 
-    // --- Arayuzu duzenli olarak guncelle ---
+    // --- Refresh the UI periodically ---
     let timer = Timer::default();
     {
         let manager = manager.clone();
@@ -97,7 +97,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let snap = manager.snapshot();
             apply_snapshot(&ui, &snap);
 
-            // Firmware listesi (cihaz tanimlandiginda)
+            // Firmware list (once the device is identified)
             let identifier = snap.identifier.clone().unwrap_or_default();
             let list = if snap.identified {
                 manager.firmware_list()
@@ -113,7 +113,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 last_sig = sig;
             }
 
-            // Butonlar yalnizca firmware listesi hazir oldugunda etkin olsun.
+            // Enable buttons only when the firmware list is ready.
             let running = snap.job.status == "running";
             let base = snap.connected
                 && snap.is_restorable
@@ -122,7 +122,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 && snap.tools.ready;
             ui.set_can_restore(base && !list.is_empty());
 
-            // Gunluk (en yeni ustte)
+            // Log (newest first)
             if snap.job.log.len() != last_log_len {
                 last_log_len = snap.job.log.len();
                 let lines: Vec<SharedString> = snap
@@ -158,7 +158,7 @@ fn cmd_download() {
     let manager = Manager::new();
     manager.start();
 
-    // Cihaz + firmware hazir olana kadar bekle.
+    // Wait until the device is identified and firmwares are available.
     let mut ready = false;
     for _ in 0..60 {
         std::thread::sleep(Duration::from_millis(1000));
@@ -169,11 +169,11 @@ fn cmd_download() {
         }
     }
     if !ready {
-        eprintln!("HATA: cihaz tanimlanamadi ya da firmware listesi alinamadi");
+        eprintln!("ERROR: device not identified or firmware list unavailable");
         return;
     }
 
-    // Ilerleme yazici.
+    // Progress printer.
     {
         let manager = manager.clone();
         std::thread::spawn(move || loop {
@@ -192,8 +192,8 @@ fn cmd_download() {
     }
 
     match manager.download_latest() {
-        Ok(path) => println!("INDIRME TAMAM: {}", path.display()),
-        Err(err) => println!("INDIRME HATA: {}", err),
+        Ok(path) => println!("DOWNLOAD COMPLETE: {}", path.display()),
+        Err(err) => println!("DOWNLOAD ERROR: {}", err),
     }
 }
 
@@ -206,7 +206,7 @@ fn selftest() {
         std::thread::sleep(Duration::from_millis(1000));
         let snap = manager.snapshot();
         let line = format!(
-            "cihaz={} mod={} tanimli={} model={} cpid={:?} bdid={:?} ecid={:?}",
+            "device={} mode={} identified={} model={} cpid={:?} bdid={:?} ecid={:?}",
             snap.connected,
             snap.mode_label,
             snap.identified,
@@ -223,19 +223,19 @@ fn selftest() {
             let list = manager.firmware_list();
             if !list.is_empty() {
                 println!(
-                    "firmware: {} adet; en guncel: {} ({}) imzali={} boyut={}",
+                    "firmware: {} entries; latest: {} ({}) signed={} size={}",
                     list.len(),
                     list[0].version,
                     list[0].buildid,
                     list[0].signed,
                     list[0].filesize_human
                 );
-                println!("OK: veri hatti calisiyor (algilama + kimlik + firmware)");
+                println!("OK: data pipeline works (detection + identity + firmware)");
                 return;
             }
         }
     }
-    println!("BITTI: cihaz bulunamadi ya da firmware alinamadi");
+    println!("DONE: no device found or firmware list unavailable");
 }
 
 fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
@@ -246,8 +246,8 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
     ui.set_tools_summary(
         format!(
             "idevicerestore: {} · irecovery: {}",
-            if snap.tools.idevicerestore { "var" } else { "yok" },
-            if snap.tools.irecovery { "var" } else { "yok" },
+            if snap.tools.idevicerestore { "yes" } else { "no" },
+            if snap.tools.irecovery { "yes" } else { "no" },
         )
         .into(),
     );
@@ -273,12 +273,7 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
             .into(),
         );
         specs.push(
-            format!(
-                "CPID/BDID {} / {}",
-                hex_opt(snap.cpid),
-                hex_opt(snap.bdid)
-            )
-            .into(),
+            format!("CPID/BDID {} / {}", hex_opt(snap.cpid), hex_opt(snap.bdid)).into(),
         );
         specs.push(format!("USB      {}", snap.vid_pid).into());
         ui.set_specs(ModelRc::from(Rc::new(VecModel::from(specs))));
@@ -290,7 +285,7 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
     ui.set_progress_pct(format!("{}%", (snap.job.progress * 100.0).round()).into());
     ui.set_progress_label(
         if snap.job.message.is_empty() {
-            "Hazır".to_string()
+            "Ready".to_string()
         } else {
             snap.job.message.clone()
         }
@@ -304,7 +299,7 @@ fn display_firmware(fw: &Firmware) -> String {
         "{} ({}) · {} · {}",
         fw.version,
         fw.buildid,
-        if fw.signed { "imzalı" } else { "imzasız" },
+        if fw.signed { "signed" } else { "unsigned" },
         fw.filesize_human
     )
 }

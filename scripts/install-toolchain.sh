@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# libimobiledevice arac zincirini (~/.pear/toolchain) icine derler.
+# Builds the libimobiledevice toolchain (idevicerestore + irecovery)
+# into ~/.pear/toolchain, without needing root.
 #
-# Apple cihazlari restore etmek icin gereken `idevicerestore` ve `irecovery`
-# araclarini root gerekmeden, kullanici alanina kurar.
+# Usage:
+#   scripts/install-toolchain.sh --deps   # install build dependencies via apt (needs sudo)
+#   scripts/install-toolchain.sh          # build the tools (deps must be present)
 #
-# Kullanim:
-#   scripts/install-toolchain.sh --deps     # once apt ile derleme bagimliliklarini kurar (sudo ister)
-#   scripts/install-toolchain.sh            # araclari derler (bagimliliklar hazirsa)
-#
-# Ortam degiskenleri:
-#   PEAR_HOME        (varsayilan: ~/.pear)
-#   JOBS             (varsayilan: nproc)
+# Environment variables:
+#   PEAR_HOME   (default: ~/.pear)
+#   JOBS        (default: nproc)
 set -euo pipefail
 
 PEAR_HOME="${PEAR_HOME:-$HOME/.pear}"
@@ -35,16 +33,16 @@ log() { printf '\033[1;34m[pear]\033[0m %s\n' "$*"; }
 err() { printf '\033[1;31m[pear]\033[0m %s\n' "$*" >&2; }
 
 if [[ "$INSTALL_DEPS" == "1" ]]; then
-  log "Derleme bagimliliklari apt ile kuruluyor (sudo gerekebilir)..."
+  log "Installing build dependencies via apt (may require sudo)..."
   sudo apt-get update
   sudo apt-get install -y "${APT_PACKAGES[@]}"
 fi
 
 for tool in git make pkg-config; do
-  command -v "$tool" >/dev/null 2>&1 || { err "'$tool' bulunamadi. Once --deps ile bagimliliklari kurun."; exit 1; }
+  command -v "$tool" >/dev/null 2>&1 || { err "'$tool' not found. Run with --deps first."; exit 1; }
 done
 if ! pkg-config --exists libusb-1.0 2>/dev/null; then
-  err "libusb-1.0 gelistirme baslikklari bulunamadi. --deps ile kurun."
+  err "libusb-1.0 development headers not found. Install them with --deps."
   exit 1
 fi
 
@@ -81,7 +79,7 @@ build_repo() {
     elif [[ -x ./configure ]]; then
       ./configure --prefix="$PREFIX" --disable-static
     else
-      err "$name icin derleme betigi bulunamadi"; exit 1
+      err "$name has no build script"; exit 1
     fi
     make -j"$JOBS"
     make install
@@ -93,15 +91,14 @@ for entry in "${REPOS[@]}"; do
   build_repo "$name" "$url" "$branch"
 done
 
-# ldconfig gereksinimi olmadan kutuphaneleri bulmak icin ortam dosyasi
+# Environment file so libraries are found without running ldconfig.
 cat > "$PREFIX/env.sh" <<EOF
-# PE Configurator arac zinciri ortami
+# PE Configurator toolchain environment
 export PATH="$PREFIX/bin:\$PATH"
 export LD_LIBRARY_PATH="$PREFIX/lib:\${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:\${PKG_CONFIG_PATH:-}"
 EOF
 
-log "Tamamlandi. Araclar: $PREFIX/bin"
+log "Done. Tools are in: $PREFIX/bin"
 "$PREFIX/bin/idevicerestore" --version 2>/dev/null || true
-"$PREFIX/bin/irecovery" -h >/dev/null 2>&1 || true
-log "PE Configurator baslatildiginda bu araclari otomatik kullanacaktir."
+log "PE Configurator will use these tools automatically on startup."

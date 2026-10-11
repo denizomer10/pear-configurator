@@ -1,4 +1,7 @@
-//! Uygulama genelinde kullanilan yollar ve sabitler.
+//! Application-wide paths and constants.
+//!
+//! All user data lives under `~/.pear` by default. The `PEAR_HOME` environment
+//! variable can override this location (useful for tests and portability).
 
 use std::fs;
 use std::path::PathBuf;
@@ -7,7 +10,7 @@ pub const USER_AGENT: &str = "pear-configurator/0.1";
 
 pub const IPSW_API_BASE: &str = "https://api.ipsw.me/v4";
 
-/// Cihaz veritabani onbellek yasi (saniye).
+/// Maximum age of the cached device database (seconds).
 pub const DEVICE_DB_MAX_AGE: u64 = 7 * 24 * 60 * 60;
 
 /// Apple USB vendor ID.
@@ -59,7 +62,7 @@ pub fn device_db_cache() -> PathBuf {
     data_dir().join("devices.json")
 }
 
-/// Gerekli calisma dizinlerini olusturur.
+/// Creates the required working directories.
 pub fn ensure_dirs() {
     for dir in [
         base_dir(),

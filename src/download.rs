@@ -1,13 +1,13 @@
-//! IPSW indirme motoru.
+//! IPSW download engine.
 //!
-//! - Akis halinde indirir ve ilerleme geri cagirimi tetikler.
-//! - Yarim kalan indirmeleri `Range` basligi ile devam ettirir.
-//! - Gecici hatalarda (baglanti kopmasi / zaman asimi) otomatik yeniden dener
-//!   ve kaldigi yerden devam eder; islem sonunda SHA-256 ozetini dogrular.
+//! - Streams the file and reports progress through a callback.
+//! - Resumes partial downloads using the `Range` header.
+//! - Automatically retries on transient failures (connection drop / timeout),
+//!   resuming where it left off, and verifies the SHA-256 at the end.
 //!
-//! Onemli: ureq'in `Request::timeout` degeri istegin **tumune** uygulanan bir
-//! son tarihtir; 20+ GB'lik bir IPSW icin bu uygun degildir. Bunun yerine
-//! ajan seviyesinde yalnizca baglanti ve okuma (stall) zaman asimlari verilir.
+//! Important: ureq's `Request::timeout` is a deadline for the *whole* request,
+//! which is unsuitable for a 20+ GB IPSW. Instead we set only per-operation
+//! connect and read (stall) timeouts at the agent level.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
@@ -24,7 +24,7 @@ const MAX_ATTEMPTS: u32 = 100;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// Indirme iptal edildiginde donen hata metni.
+/// Error string returned when the download is cancelled.
 pub const CANCELLED: &str = "__cancelled__";
 
 pub struct DownloadResult {
@@ -57,7 +57,7 @@ fn part_path(destination: &Path) -> PathBuf {
     PathBuf::from(os)
 }
 
-/// Bir dosyanin SHA-256 ozetini dogrular.
+/// Verifies a file's SHA-256 digest.
 pub fn verify_sha256(path: &Path, expected: &str) -> bool {
     if expected.is_empty() {
         return true;
@@ -93,7 +93,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 fn classify(error: ureq::Error) -> AttemptError {
     match error {
         ureq::Error::Status(code, _) => {
-            // 4xx (408/429 haric) kalici; 5xx ve digerleri gecici.
+            // 4xx (except 408/429) is permanent; 5xx and others are transient.
             if (400..500).contains(&code) && code != 408 && code != 429 {
                 AttemptError::Fatal(format!("HTTP {}", code))
             } else {
@@ -104,7 +104,7 @@ fn classify(error: ureq::Error) -> AttemptError {
     }
 }
 
-/// Tek bir indirme denemesi; basarida `part` dosyasini `destination`'a tasir.
+/// A single download attempt; on success moves `part` to `destination`.
 fn download_once(
     url: &str,
     destination: &Path,
@@ -132,7 +132,7 @@ fn download_once(
     let resp = match request.call() {
         Ok(resp) => resp,
         Err(ureq::Error::Status(416, _)) if existing > 0 => {
-            // Dosya zaten tam; dogrulama karar verecek.
+            // File is already complete; verification will decide.
             let _ = fs::rename(&part, destination);
             return Ok(());
         }
@@ -157,7 +157,7 @@ fn download_once(
         .append(existing > 0)
         .truncate(existing == 0)
         .open(&part)
-        .map_err(|e| AttemptError::Fatal(format!("Dosya acilamadi: {}", e)))?;
+        .map_err(|e| AttemptError::Fatal(format!("Could not open file: {}", e)))?;
 
     let mut done = existing;
     let mut buf = vec![0u8; CHUNK_SIZE];
@@ -167,25 +167,26 @@ fn download_once(
         }
         let n = match reader.read(&mut buf) {
             Ok(n) => n,
-            Err(e) => return Err(AttemptError::Transient(format!("Okuma hatasi: {}", e))),
+            Err(e) => return Err(AttemptError::Transient(format!("Read error: {}", e))),
         };
         if n == 0 {
             break;
         }
         if let Err(e) = file.write_all(&buf[..n]) {
-            return Err(AttemptError::Fatal(format!("Yazma hatasi: {}", e)));
+            return Err(AttemptError::Fatal(format!("Write error: {}", e)));
         }
         done += n as u64;
         progress(done, total);
     }
     drop(file);
 
-    fs::rename(&part, destination).map_err(|e| AttemptError::Fatal(format!("Yeniden adlandirma hatasi: {}", e)))?;
+    fs::rename(&part, destination)
+        .map_err(|e| AttemptError::Fatal(format!("Rename error: {}", e)))?;
     Ok(())
 }
 
-/// Dosyayi indirir; ilerleme `progress(downloaded, total)`, durum mesajlari
-/// `note(text)` ile bildirilir. Gecici hatalarda kaldigi yerden devam eder.
+/// Downloads the file. Progress is reported via `progress(downloaded, total)`
+/// and status messages via `note(text)`. Resumes after transient failures.
 pub fn download(
     url: &str,
     destination: &Path,
@@ -210,22 +211,22 @@ pub fn download(
                         verified: true,
                     });
                 }
-                // Bozuk/eksik: bastan indir.
+                // Corrupt/incomplete: start over.
                 let _ = fs::remove_file(destination);
                 use_resume = false;
                 if attempts >= MAX_ATTEMPTS {
-                    return Err("SHA-256 dogrulanamadi".to_string());
+                    return Err("SHA-256 verification failed".to_string());
                 }
-                note("Dogrulama basarisiz, bastan indiriliyor...");
+                note("Verification failed, downloading from scratch...");
             }
             Err(AttemptError::Cancelled) => return Err(CANCELLED.to_string()),
             Err(AttemptError::Fatal(msg)) => return Err(msg),
             Err(AttemptError::Transient(msg)) => {
                 if attempts >= MAX_ATTEMPTS {
-                    return Err(format!("{} ({} deneme sonrasi)", msg, attempts));
+                    return Err(format!("{} (after {} attempts)", msg, attempts));
                 }
                 note(&format!(
-                    "Baglanti sorunu ({}), kaldigi yerden devam ediliyor... ({}/{})",
+                    "Connection problem ({}), resuming... ({}/{})",
                     msg, attempts, MAX_ATTEMPTS
                 ));
                 std::thread::sleep(Duration::from_secs(2));

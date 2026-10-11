@@ -1,8 +1,8 @@
-//! Cihaz (board) veritabani.
+//! Device (board) database.
 //!
-//! Apple cihazlari DFU modunda kendini CPID (yonga) + BDID (board) ile tanitir.
-//! Bu ikiliyi urun tanimlayicisina (ornegin `Macmini9,1`) cevirmek icin
-//! ipsw.me `/v4/devices` uclu kullanilir ve yerel olarak onbelleklenir.
+//! Apple devices identify themselves in DFU mode with a CPID (chip) and BDID
+//! (board) pair. To map that pair to a product identifier (e.g. `Macmini9,1`)
+//! we use the ipsw.me `/v4/devices` endpoint and cache it locally.
 
 use std::collections::HashMap;
 use std::fs;
@@ -58,14 +58,7 @@ impl DeviceDatabase {
             };
             by_id.entry(dev.identifier.clone()).or_insert_with(|| base.clone());
 
-            let boards: Vec<&RawBoard> = if dev.boards.is_empty() {
-                // boards alani yoksa kok seviye bilgisi kullanilamaz; atla.
-                Vec::new()
-            } else {
-                dev.boards.iter().collect()
-            };
-
-            for board in boards {
+            for board in &dev.boards {
                 if let (Some(cpid), Some(bdid)) = (board.cpid, board.bdid) {
                     let entry = DeviceEntry {
                         identifier: dev.identifier.clone(),
@@ -129,12 +122,7 @@ impl DeviceDatabase {
         devices
     }
 
-    #[allow(dead_code)]
-    pub fn size(&self) -> usize {
-        self.by_board.len()
-    }
-
-    /// Veritabanini onbellekten ya da ipsw.me'den yukler.
+    /// Loads the database from cache or from ipsw.me.
     pub fn load(refresh: bool) -> Self {
         let cache_path = config::device_db_cache();
         let mut raw: Option<Vec<RawDevice>> = None;

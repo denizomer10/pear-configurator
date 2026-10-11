@@ -1,7 +1,9 @@
-# PE Configurator: Apple cihazlarina (DFU / kurtarma modu dahil) erisim.
+# PE Configurator: allow access to Apple devices (including DFU / recovery mode).
 #
-# libusb ile DFU/kurtarma modundaki Apple cihazlarina yazma izni verir.
-# Kurulum:
+# Grants the `plugdev` group write access to Apple devices so that libusb
+# (and therefore irecovery / idevicerestore) can talk to devices in DFU mode.
+#
+# Install:
 #   sudo install -m 644 scripts/99-pear-apple.rules /etc/udev/rules.d/99-pear-apple.rules
 #   sudo udevadm control --reload-rules && sudo udevadm trigger
 SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", MODE="0660", GROUP="plugdev"

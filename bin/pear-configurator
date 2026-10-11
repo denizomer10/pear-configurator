@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
-# PE Configurator baslatici.
-# Derlenmis ikili varsa onu, yoksa `cargo run` ile calistirir.
+# PE Configurator launcher.
+# Runs the release binary if present, otherwise falls back to `cargo run`.
 set -e
 
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)

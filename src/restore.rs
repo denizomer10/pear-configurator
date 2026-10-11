@@ -1,11 +1,11 @@
-//! Restore motoru: `idevicerestore` surecini calistirir ve ilerlemeyi ayristirir.
+//! Restore engine: runs the `idevicerestore` process and parses its progress.
 //!
-//! `idevicerestore -P` (plain progress) makine tarafindan okunabilir satirlar
-//! uretir:
+//! With `idevicerestore -P` (plain progress) the tool emits machine-readable
+//! lines:
 //!
 //! ```text
-//! progress: <adim> <adim_ilerlemesi>
-//! <Etiket>: <yuzde>
+//! progress: <step> <step_progress>
+//! <Label>: <percent>
 //! ```
 
 use std::io::{BufRead, BufReader};
@@ -17,20 +17,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::config;
 
 pub const RESTORE_STEPS: [&str; 14] = [
-    "Cihaz algilaniyor",
-    "Hazirlik",
-    "Firmware dogrulaniyor",
-    "iBSS yukleniyor",
-    "iBEC yukleniyor",
-    "Ramdisk gonderiliyor",
-    "Kernel onbellegi gonderiliyor",
-    "DeviceTree gonderiliyor",
-    "SEP gonderiliyor",
-    "Baseband guncelleniyor",
-    "Isletim sistemi dogrulaniyor",
-    "Dosya sistemi yaziliyor",
-    "Kurtarma dosyalari yaziliyor",
-    "Flas bellege yaziliyor",
+    "Detecting device",
+    "Preparing",
+    "Verifying firmware",
+    "Uploading iBSS",
+    "Uploading iBEC",
+    "Sending ramdisk",
+    "Sending kernelcache",
+    "Sending device tree",
+    "Sending SEP",
+    "Updating baseband",
+    "Verifying OS",
+    "Writing filesystem",
+    "Writing recovery files",
+    "Writing to flash",
 ];
 pub const TOTAL_STEPS: usize = RESTORE_STEPS.len();
 
@@ -47,7 +47,6 @@ pub enum RestoreEvent {
         overall: f64,
         text: String,
     },
-    #[allow(dead_code)]
     Detail {
         label: String,
         percent: f64,
@@ -95,17 +94,14 @@ pub fn is_available() -> bool {
     find_idevicerestore().is_some()
 }
 
-/// `idevicerestore` icin argv listesi olusturur.
+/// Builds the argv list for `idevicerestore`.
 pub fn build_command(tool: &Path, options: &RestoreOptions) -> Vec<String> {
     let mut cmd = vec![
         tool.to_string_lossy().to_string(),
         "-P".to_string(),
         "-y".to_string(),
     ];
-    let cache = options
-        .cache_path
-        .clone()
-        .unwrap_or_else(config::cache_dir);
+    let cache = options.cache_path.clone().unwrap_or_else(config::cache_dir);
     cmd.push("-C".to_string());
     cmd.push(cache.to_string_lossy().to_string());
 
@@ -154,7 +150,7 @@ fn strip_ansi(input: &str) -> String {
     out
 }
 
-/// Tek bir cikti satirini olaya cevirir (yoksa `None`).
+/// Turns a single output line into an event (or `None`).
 pub fn parse_progress_line(line: &str) -> Option<RestoreEvent> {
     let clean = strip_ansi(line).trim_end().to_string();
     if clean.is_empty() {
@@ -164,10 +160,7 @@ pub fn parse_progress_line(line: &str) -> Option<RestoreEvent> {
     if let Some(rest) = clean.strip_prefix("progress:") {
         let parts: Vec<&str> = rest.split_whitespace().collect();
         if parts.len() == 2 {
-            if let (Ok(step), Ok(frac)) = (
-                parts[0].parse::<usize>(),
-                parts[1].parse::<f64>(),
-            ) {
+            if let (Ok(step), Ok(frac)) = (parts[0].parse::<usize>(), parts[1].parse::<f64>()) {
                 let step = step.min(TOTAL_STEPS - 1);
                 let frac_clamped = frac.clamp(0.0, 1.0);
                 let overall = (step as f64 + frac_clamped) / TOTAL_STEPS as f64;
@@ -182,7 +175,7 @@ pub fn parse_progress_line(line: &str) -> Option<RestoreEvent> {
         }
     }
 
-    // "<Etiket>: <yuzde>" bicimi (or. "Sending KernelCache:  42.5")
+    // "<Label>: <percent>" form (e.g. "Sending KernelCache:  42.5")
     if let Some((label, value)) = clean.rsplit_once(':') {
         let value = value.trim();
         if !label.is_empty() && value.contains('.') {
@@ -199,14 +192,15 @@ pub fn parse_progress_line(line: &str) -> Option<RestoreEvent> {
     Some(RestoreEvent::Log(clean))
 }
 
-/// Restore islemini calistirir; her olay icin `on_event` cagirilir.
+/// Runs the restore; `on_event` is called for every output event.
 pub fn run(
     options: &RestoreOptions,
     on_event: &dyn Fn(RestoreEvent),
     cancel: &AtomicBool,
 ) -> Result<i32, String> {
-    let tool = find_idevicerestore()
-        .ok_or_else(|| "idevicerestore bulunamadi. scripts/install-toolchain.sh calistirin.".to_string())?;
+    let tool = find_idevicerestore().ok_or_else(|| {
+        "idevicerestore not found. Run scripts/install-toolchain.sh.".to_string()
+    })?;
     let argv = build_command(&tool, options);
     on_event(RestoreEvent::Command(argv.join(" ")));
 
@@ -225,7 +219,7 @@ pub fn run(
 
     let mut child = command
         .spawn()
-        .map_err(|e| format!("idevicerestore baslatilamadi: {}", e))?;
+        .map_err(|e| format!("Failed to start idevicerestore: {}", e))?;
 
     if let Some(stdout) = child.stdout.take() {
         let reader = BufReader::new(stdout);
@@ -246,7 +240,9 @@ pub fn run(
         }
     }
 
-    let status = child.wait().map_err(|e| format!("Surec beklenemedi: {}", e))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("Failed to wait for process: {}", e))?;
     Ok(status.code().unwrap_or(-1))
 }
 
@@ -308,7 +304,7 @@ mod tests {
                 assert_eq!(step, 2);
                 assert!(overall > 0.0 && overall <= 1.0);
             }
-            other => panic!("beklenmeyen: {:?}", other),
+            other => panic!("unexpected: {:?}", other),
         }
     }
 
@@ -316,7 +312,7 @@ mod tests {
     fn parse_detail() {
         match parse_progress_line("Sending KernelCache:  42.5") {
             Some(RestoreEvent::Detail { percent, .. }) => assert_eq!(percent, 42.5),
-            other => panic!("beklenmeyen: {:?}", other),
+            other => panic!("unexpected: {:?}", other),
         }
     }
 

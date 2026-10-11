@@ -1,115 +1,115 @@
 # PE Configurator
 
-Apple cihazlarını **DFU** ya da **kurtarma (recovery)** modunda tek tıkla geri
-yükleyen (restore) masaüstü uygulaması.
+A desktop app that restores Apple devices with a single click while they are in
+**DFU** or **recovery** mode.
 
-- **Diller:** Rust + [Slint](https://slint.dev) (native masaüstü arayüz)
+- **Built with:** Rust + [Slint](https://slint.dev) (native desktop UI)
 - **Platform:** Linux (Wayland / X11)
-- **Desteklenen cihazlar:** iPhone, iPad, iPod, Apple TV ve **Apple Silicon Mac**
+- **Supported devices:** iPhone, iPad, iPod, Apple TV and **Apple Silicon Mac**
 
-libimobiledevice ve restorekit projelerinden ilham almıştır.
+Inspired by libimobiledevice and restorekit.
 
-## Ne yapar?
+## What it does
 
-1. **Algılar:** USB'ye bağlı Apple cihazını ve modunu (DFU / kurtarma) anında görür.
-2. **Tanır:** Cihazın modelini otomatik belirler (ör. Mac mini M1 → `Macmini9,1`).
-3. **Bulur:** ipsw.me üzerinden cihaza uygun **imzalı** sürümleri listeler.
-4. **İndirir:** Seçilen IPSW yoksa indirir (kaldığı yerden devam + SHA-256 doğrulama).
-5. **Kurar:** `idevicerestore` ile restore eder; ilerlemeyi canlı gösterir.
+1. **Detects** an attached Apple device and its mode (DFU / recovery) instantly.
+2. **Identifies** the exact model automatically (e.g. Mac mini M1 → `Macmini9,1`).
+3. **Finds** the **signed** firmware versions for that device from ipsw.me.
+4. **Downloads** the selected IPSW if missing (resumes + verifies SHA-256).
+5. **Restores** it with `idevicerestore`, showing live progress.
 
-İki restore modu vardır:
+Two restore modes are available:
 
-| Buton | Etki |
+| Button | Effect |
 | --- | --- |
-| **Flaşı Sil ve Kur** | Tüm veriyi siler, sıfırdan kurar (`-e`) |
-| **Veriyi Koru** | Güncelleme / revive (veriyi silmez) |
+| **Erase & Install** | Erases all data and installs from scratch (`-e`) |
+| **Keep Data** | Update / revive (does not erase user data) |
 
-## Gereksinimler
+## Requirements
 
-- Linux (Wayland veya X11 masaüstü)
-- Rust (rustup ile kurulabilir)
-- Sistem kütüphaneleri: `libfontconfig1-dev`, `libfreetype-dev` (derleme için)
-- `idevicerestore` ve `irecovery` (aşağıdaki betikle kurulur)
-- DFU cihazlarına USB erişimi için udev kuralı
+- Linux (Wayland or X11 desktop)
+- Rust (installable via rustup)
+- System libraries: `libfontconfig1-dev`, `libfreetype-dev` (for building)
+- `idevicerestore` and `irecovery` (installed by the script below)
+- A udev rule for USB access to DFU devices
 
-## Kurulum
+## Installation
 
-### 1) Arayüzü derleyin
+### 1) Build the app
 
 ```sh
 sudo apt-get install -y build-essential pkg-config libfontconfig1-dev libfreetype-dev
 cargo build --release
 ```
 
-### 2) Apple araç zincirini kurun
+### 2) Install the Apple toolchain
 
 ```sh
-scripts/install-toolchain.sh --deps   # derleme bağımlılıkları (sudo ister)
-scripts/install-toolchain.sh          # idevicerestore + irecovery derlenir
+scripts/install-toolchain.sh --deps   # build dependencies via apt (needs sudo)
+scripts/install-toolchain.sh          # builds idevicerestore + irecovery
 ```
 
-Araçlar `~/.pear/toolchain` altına kurulur (root gerekmez).
+The tools are installed under `~/.pear/toolchain` (no root required).
 
-### 3) USB erişim kuralı (udev)
+### 3) USB access rule (udev)
 
 ```sh
 sudo install -m 644 scripts/99-pear-apple.rules /etc/udev/rules.d/99-pear-apple.rules
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-Kullanıcı `plugdev` grubunda olmalıdır.
+The user must be in the `plugdev` group.
 
-## Çalıştırma
+## Running
 
 ```sh
 ./target/release/pear-configurator
 ```
 
-Pencere açılmazsa (GPU'suz ortam) yazılım renderer'ı zorlayın:
+If the window does not open (GPU-less environment), force the software renderer:
 
 ```sh
 SLINT_BACKEND=winit-software ./target/release/pear-configurator
 ```
 
-Ek komutlar:
+Extra commands:
 
 ```sh
-./target/release/pear-configurator --selftest   # cihaz algılama + model + firmware testi (GUI'siz)
-./target/release/pear-configurator --download   # IPSW'yi önceden indir + doğrula
+./target/release/pear-configurator --selftest   # detection + model + firmware test (no GUI)
+./target/release/pear-configurator --download   # pre-download and verify the IPSW
 ```
 
-## Kullanım
+## Usage
 
-1. Cihazı USB ile bağlayıp **DFU** ya da **kurtarma** moduna alın.
-2. Program cihazı, modunu ve modelini otomatik gösterir.
-3. **Sürüm (IPSW)** listesinden bir sürüm seçin (imzalılar önerilir).
-4. **Flaşı Sil ve Kur** (veya **Veriyi Koru**) düğmesine basın.
-5. Gerekirse IPSW indirilir, ardından restore ilerlemesi izlenir.
+1. Connect the device and put it into **DFU** or **recovery** mode.
+2. The app automatically shows the device, its mode and model.
+3. Pick a version from the **Version (IPSW)** list (signed ones are recommended).
+4. Click **Erase & Install** (or **Keep Data**).
+5. If needed the IPSW is downloaded, then restore progress is shown live.
 
-## Dosya konumları
+## File locations
 
-| Ne | Yer |
+| What | Where |
 | --- | --- |
-| Araç zinciri | `~/.pear/toolchain` |
-| İndirilen IPSW | `~/.pear/ipsw` |
-| Önbellek / veritabanı | `~/.pear/cache`, `~/.pear/data` |
-| Günlükler | `~/.pear/logs` |
+| Toolchain | `~/.pear/toolchain` |
+| Downloaded IPSW | `~/.pear/ipsw` |
+| Cache / database | `~/.pear/cache`, `~/.pear/data` |
+| Logs | `~/.pear/logs` |
 
-`PEAR_HOME` ve `PEAR_DOWNLOAD_DIR` ortam değişkenleriyle değiştirilebilir.
+Override with the `PEAR_HOME` and `PEAR_DOWNLOAD_DIR` environment variables.
 
-## Testler
+## Tests
 
 ```sh
 cargo test
 ```
 
-## Uyarılar
+## Warnings
 
-- **Flaşı Sil ve Kur geri alınamaz**, cihazdaki tüm veri silinir.
-- Apple Silicon Mac restore'u güncel `idevicerestore` gerektirir (bu yüzden
-  araçlar kaynaktan derlenir).
-- `irecovery` bulunamazsa cihaz yine de USB üzerinden (CPID/BDID) tanımlanır.
+- **Erase & Install cannot be undone**; all data on the device is erased.
+- Apple Silicon Mac restore requires a recent `idevicerestore` (hence the tools
+  are built from source).
+- If `irecovery` is missing, the device is still identified over USB (CPID/BDID).
 
-## Lisans
+## License
 
-**GNU General Public License v2.0 (GPLv2)** — bkz. [LICENSE](LICENSE).
+**GNU General Public License v2.0 (GPLv2)** — see [LICENSE](LICENSE).
