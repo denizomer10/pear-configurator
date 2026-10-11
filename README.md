@@ -1,4 +1,4 @@
-# PE Configurator
+# PEAR Configurator
 
 A desktop app that restores Apple devices with a single click while they are in
 **DFU** or **recovery** mode.

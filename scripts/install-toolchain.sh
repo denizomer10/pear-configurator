@@ -93,7 +93,7 @@ done
 
 # Environment file so libraries are found without running ldconfig.
 cat > "$PREFIX/env.sh" <<EOF
-# PE Configurator toolchain environment
+# PEAR Configurator toolchain environment
 export PATH="$PREFIX/bin:\$PATH"
 export LD_LIBRARY_PATH="$PREFIX/lib:\${LD_LIBRARY_PATH:-}"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig:\${PKG_CONFIG_PATH:-}"
@@ -101,4 +101,4 @@ EOF
 
 log "Done. Tools are in: $PREFIX/bin"
 "$PREFIX/bin/idevicerestore" --version 2>/dev/null || true
-log "PE Configurator will use these tools automatically on startup."
+log "PEAR Configurator will use these tools automatically on startup."

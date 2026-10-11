@@ -1,4 +1,4 @@
-//! PE Configurator - entry point (Slint desktop UI).
+//! PEAR Configurator - entry point (Slint desktop UI).
 
 mod config;
 mod database;
@@ -154,7 +154,7 @@ fn start_restore(manager: &Arc<Manager>, ui_weak: &slint::Weak<AppWindow>, erase
 }
 
 fn cmd_download() {
-    println!("PE Configurator --download");
+    println!("PEAR Configurator --download");
     let manager = Manager::new();
     manager.start();
 
@@ -198,7 +198,7 @@ fn cmd_download() {
 }
 
 fn selftest() {
-    println!("PE Configurator --selftest");
+    println!("PEAR Configurator --selftest");
     let manager = Manager::new();
     manager.start();
     let mut last = String::new();

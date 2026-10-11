@@ -1,4 +1,4 @@
-# PE Configurator: allow access to Apple devices (including DFU / recovery mode).
+# PEAR Configurator: allow access to Apple devices (including DFU / recovery mode).
 #
 # Grants the `plugdev` group write access to Apple devices so that libusb
 # (and therefore irecovery / idevicerestore) can talk to devices in DFU mode.

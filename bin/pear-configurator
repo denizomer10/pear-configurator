@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# PE Configurator launcher.
+# PEAR Configurator launcher.
 # Runs the release binary if present, otherwise falls back to `cargo run`.
 set -e
 
