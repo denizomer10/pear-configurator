@@ -1,0 +1,29 @@
+[package]
+name = "pear-configurator"
+version = "0.1.0"
+edition = "2021"
+description = "Tek tikla Apple cihaz restore arayuzu (DFU / kurtarma modu)"
+license = "GPL-2.0-only"
+
+[[bin]]
+name = "pear-configurator"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "2"
+sha2 = "0.10"
+slint = { version = "1", default-features = false, features = [
+    "std",
+    "backend-winit",
+    "renderer-software",
+    "compat-1-2",
+] }
+
+[build-dependencies]
+slint-build = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"

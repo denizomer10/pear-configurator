@@ -1,0 +1,396 @@
+import { ComboBox, ScrollView } from "std-widgets.slint";
+
+// Küçük durum rozeti (araç / bilgi pilleri).
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <color> dot-color: #616a8c;
+
+    height: 26px;
+    border-radius: 13px;
+    background: #ffffff08;
+    border-width: 1px;
+    border-color: #788cdc24;
+
+    HorizontalLayout {
+        alignment: center;
+        padding-left: 11px;
+        padding-right: 11px;
+        spacing: 7px;
+
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            border-radius: 4px;
+            background: root.dot-color;
+        }
+        Text {
+            text: root.label;
+            color: #9aa3c4;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// Büyük işlem butonu (başlık + açıklama).
+component ActionButton inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <brush> base-color: #ffffff10;
+    in property <bool> active: true;
+    callback clicked();
+
+    height: 62px;
+    border-radius: 14px;
+    background: root.active ? root.base-color : #ffffff0a;
+    opacity: root.active ? 1.0 : 0.4;
+    animate opacity { duration: 150ms; }
+
+    HorizontalLayout {
+        alignment: center;
+        padding: 14px;
+        VerticalLayout {
+            alignment: center;
+            spacing: 3px;
+            Text {
+                text: root.title;
+                color: #ffffff;
+                font-size: 15px;
+                font-weight: 600;
+                horizontal-alignment: center;
+            }
+            Text {
+                text: root.subtitle;
+                color: #ffffffb0;
+                font-size: 11px;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { if (root.active) { root.clicked(); } }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "PE Configurator";
+    width: 1060px;
+    height: 780px;
+    background: #0b0d17;
+    default-font-size: 13px;
+
+    // Cihaz
+    in-out property <bool> device-connected: false;
+    in-out property <string> device-name: "Cihaz bekleniyor…";
+    in-out property <string> mode-label: "—";
+    in-out property <color> mode-color: #6d8bff;
+    in-out property <[string]> specs: [];
+
+    // Araçlar
+    in-out property <string> tools-summary: "";
+    in-out property <bool> tools-ready: false;
+
+    // Firmware
+    in property <[string]> firmware-model: [];
+    in-out property <int> firmware-index: 0;
+
+    // İlerleme
+    in-out property <float> progress: 0.0;
+    in-out property <string> progress-pct: "0%";
+    in-out property <string> progress-label: "Hazır";
+    in-out property <string> progress-detail: "";
+    in-out property <bool> job-running: false;
+
+    // Günlük (en yeni üstte)
+    in property <[string]> log-lines: [];
+
+    in-out property <bool> can-restore: false;
+    in-out property <bool> confirm-visible: false;
+
+    callback erase-clicked();
+    callback update-clicked();
+    callback cancel-clicked();
+    callback clear-log();
+    callback confirm-accept();
+    callback confirm-cancel();
+    callback firmware-selected(int);
+
+    VerticalLayout {
+        padding: 22px;
+        spacing: 18px;
+
+        // ---- Başlık ----
+        HorizontalLayout {
+            spacing: 14px;
+            Rectangle {
+                width: 50px;
+                height: 50px;
+                border-radius: 15px;
+                background: @linear-gradient(135deg, #6d8bff, #9b6dff);
+                Text {
+                    text: "PE";
+                    color: #ffffff;
+                    font-size: 18px;
+                    font-weight: 800;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text { text: "PE Configurator"; color: #e9ecf8; font-size: 21px; font-weight: 700; }
+                Text { text: "Apple cihaz restore merkezi"; color: #9aa3c4; font-size: 12px; }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: center;
+                Pill { label: root.tools-summary; dot-color: root.tools-ready ? #35d49a : #ff4d6d; }
+            }
+        }
+
+        // ---- Orta: cihaz + restore ----
+        HorizontalLayout {
+            spacing: 18px;
+
+            // Cihaz paneli
+            Rectangle {
+                width: 46%;
+                height: 330px;
+                border-radius: 18px;
+                background: #141828cc;
+                border-width: 1px;
+                border-color: #788cdc20;
+
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 16px;
+
+                    Text { text: "BAĞLI CİHAZ"; color: #9aa3c4; font-size: 12px; font-weight: 600; }
+
+                    if !root.device-connected: Text {
+                        text: "Cihaz bekleniyor…\nDFU ya da kurtarma moduna alın";
+                        color: #616a8c;
+                        font-size: 14px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        vertical-stretch: 1;
+                        wrap: word-wrap;
+                    }
+
+                    if root.device-connected: VerticalLayout {
+                        spacing: 16px;
+
+                        HorizontalLayout {
+                            spacing: 14px;
+
+                            // Basit cihaz ikonu
+                            Rectangle {
+                                width: 56px;
+                                height: 56px;
+                                border-radius: 15px;
+                                background: #ffffff0d;
+                                Rectangle { x: 14px; y: 15px; width: 28px; height: 20px; border-radius: 3px; border-width: 2px; border-color: #8fa0e0; }
+                                Rectangle { x: 23px; y: 36px; width: 10px; height: 4px; border-radius: 2px; background: #8fa0e0; }
+                            }
+
+                            VerticalLayout {
+                                alignment: center;
+                                spacing: 7px;
+                                Text { text: root.device-name; color: #e9ecf8; font-size: 17px; font-weight: 600; }
+                                Rectangle {
+                                    border-radius: 11px;
+                                    background: root.mode-color;
+                                    HorizontalLayout {
+                                        padding-left: 11px;
+                                        padding-right: 11px;
+                                        padding-top: 4px;
+                                        padding-bottom: 4px;
+                                        Text { text: root.mode-label; color: #ffffff; font-size: 11px; font-weight: 600; }
+                                    }
+                                }
+                            }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+
+                        for spec in root.specs: Text {
+                            text: spec;
+                            color: #b7c0e0;
+                            font-size: 12px;
+                            font-family: "monospace";
+                        }
+                    }
+                }
+            }
+
+            // Restore paneli
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 330px;
+                border-radius: 18px;
+                background: #141828cc;
+                border-width: 1px;
+                border-color: #788cdc20;
+
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 12px;
+
+                    Text { text: "RESTORE"; color: #9aa3c4; font-size: 12px; font-weight: 600; }
+                    Text { text: "Sürüm (IPSW)"; color: #9aa3c4; font-size: 12px; }
+                    ComboBox {
+                        model: root.firmware-model;
+                        current-index <=> root.firmware-index;
+                        selected(value) => { root.firmware-selected(root.firmware-index); }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        ActionButton {
+                            horizontal-stretch: 1;
+                            title: "Flaşı Sil ve Kur";
+                            subtitle: "Tüm veriler silinir";
+                            base-color: @linear-gradient(135deg, #ff4d6d, #ff8a5c);
+                            active: root.can-restore;
+                            clicked => { root.erase-clicked(); }
+                        }
+                        ActionButton {
+                            horizontal-stretch: 1;
+                            title: "Veriyi Koru";
+                            subtitle: "Güncelleme (revive)";
+                            base-color: @linear-gradient(135deg, #3a4bb0, #5a3ab0);
+                            active: root.can-restore;
+                            clicked => { root.update-clicked(); }
+                        }
+                    }
+
+                    Rectangle { height: 6px; }
+
+                    Rectangle {
+                        height: 10px;
+                        border-radius: 5px;
+                        background: #05070e;
+                        border-width: 1px;
+                        border-color: #788cdc20;
+                        clip: true;
+                        Rectangle {
+                            width: parent.width * root.progress;
+                            height: parent.height;
+                            border-radius: 5px;
+                            background: @linear-gradient(90deg, #6d8bff, #9b6dff);
+                            animate width { duration: 300ms; }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        Text { text: root.progress-label; color: #9aa3c4; font-size: 13px; horizontal-stretch: 1; }
+                        Text { text: root.progress-pct; color: #9aa3c4; font-size: 13px; font-weight: 600; }
+                    }
+                    Text { text: root.progress-detail; color: #616a8c; font-size: 11px; font-family: "monospace"; vertical-stretch: 1; }
+
+                    if root.job-running: ActionButton {
+                        width: 130px;
+                        height: 40px;
+                        title: "İptal Et";
+                        subtitle: "";
+                        base-color: #ffffff12;
+                        clicked => { root.cancel-clicked(); }
+                    }
+                }
+            }
+        }
+
+        // ---- Günlük ----
+        Rectangle {
+            vertical-stretch: 1;
+            border-radius: 14px;
+            background: #05070e;
+            border-width: 1px;
+            border-color: #788cdc20;
+            clip: true;
+
+            VerticalLayout {
+                padding-top: 10px;
+                padding-bottom: 10px;
+                spacing: 4px;
+                HorizontalLayout {
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    Text { text: "İŞLEM GÜNLÜĞÜ"; color: #9aa3c4; font-size: 11px; font-weight: 600; horizontal-stretch: 1; }
+                    Text { text: "temizle"; color: #616a8c; font-size: 11px; }
+                    TouchArea { mouse-cursor: pointer; clicked => { root.clear-log(); } }
+                }
+                ScrollView {
+                    VerticalLayout {
+                        padding-left: 14px;
+                        padding-right: 14px;
+                        spacing: 3px;
+                        for line in root.log-lines: Text {
+                            text: line;
+                            color: #b7c0e0;
+                            font-size: 12px;
+                            font-family: "monospace";
+                            wrap: no-wrap;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- Onay penceresi ----
+    if root.confirm-visible: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #04060cc0;
+
+        Rectangle {
+            width: 460px;
+            height: 220px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 18px;
+            background: #121523;
+            border-width: 1px;
+            border-color: #788cdc24;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 14px;
+                Text { text: "Flaşı Sil ve Kur"; color: #e9ecf8; font-size: 19px; font-weight: 700; }
+                Text {
+                    text: "Cihazdaki tüm veriler kalıcı olarak silinecek ve seçili sürüm sıfırdan kurulacak. Bu işlem geri alınamaz.";
+                    color: #9aa3c4;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                    vertical-stretch: 1;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+                    ActionButton {
+                        width: 130px;
+                        height: 44px;
+                        title: "Vazgeç";
+                        subtitle: "";
+                        base-color: #ffffff12;
+                        clicked => { root.confirm-cancel(); }
+                    }
+                    ActionButton {
+                        width: 140px;
+                        height: 44px;
+                        title: "Sil ve Kur";
+                        subtitle: "";
+                        base-color: @linear-gradient(135deg, #ff4d6d, #ff8a5c);
+                        clicked => { root.confirm-accept(); }
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,11 @@
+target/
+*.ipsw
+*.part
+*.log
+
+# Editör
+.idea/
+.vscode/
+*.swp
+.DS_Store
+__pycache__/

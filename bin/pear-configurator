@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# PE Configurator baslatici.
+# Derlenmis ikili varsa onu, yoksa `cargo run` ile calistirir.
+set -e
+
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -x "$DIR/target/release/pear-configurator" ]; then
+  exec "$DIR/target/release/pear-configurator" "$@"
+fi
+
+cd "$DIR"
+exec cargo run --release -- "$@"
