@@ -26,11 +26,28 @@ Two restore modes are available:
 
 ## Requirements
 
-- Linux (Wayland or X11 desktop)
-- Rust (installable via rustup)
-- System libraries: `libfontconfig1-dev`, `libfreetype-dev` (for building)
-- `idevicerestore` and `irecovery` (installed by the script below)
+- A Linux desktop (Wayland or X11)
+- Either the prebuilt **AppImage** (no dependencies), or the following to build
+  from source:
+  - Rust (installable via rustup)
+  - System libraries: `libfontconfig1-dev`, `libfreetype-dev`
+- `idevicerestore` and `irecovery` (installed by the script below, or bundled in
+  the AppImage)
 - A udev rule for USB access to DFU devices
+
+## Quick start (AppImage)
+
+Download the latest `PEAR-Configurator-x86_64.AppImage` from the
+[Releases](https://github.com/denizomer10/pear-configurator/releases) page:
+
+```sh
+chmod +x PEAR-Configurator-x86_64.AppImage
+./PEAR-Configurator-x86_64.AppImage
+```
+
+The AppImage bundles all runtime libraries and the `idevicerestore` toolchain,
+so nothing needs to be installed on the system (a desktop with Wayland or X11 is
+still required). The udev rule below is still needed for USB access.
 
 ## Installation
 
@@ -58,6 +75,15 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
 The user must be in the `plugdev` group.
+
+### 4) (Optional) Build a self-contained AppImage
+
+```sh
+scripts/build-appimage.sh   # -> dist/PEAR-Configurator-x86_64.AppImage
+```
+
+It uses `linuxdeploy` and `appimagetool` (downloaded automatically) and bundles
+the runtime libraries plus the Apple toolchain into a single file.
 
 ## Running
 

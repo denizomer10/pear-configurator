@@ -1,9 +1,17 @@
+# Rust
 target/
+
+# Downloads / runtime artifacts
 *.ipsw
 *.part
 *.log
 
-# Editör
+# AppImage build artifacts
+.appimage-tools/
+.appdir/
+dist/
+
+# Editor / OS
 .idea/
 .vscode/
 *.swp
