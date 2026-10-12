@@ -3,16 +3,16 @@
 #
 # It bundles the GUI runtime libraries and, when present, the Apple
 # idevicerestore/irecovery toolchain, so the resulting .AppImage can be run on
-# any x86_64 Linux desktop without installing dependencies.
+# any Linux desktop (x86_64 or aarch64) without installing dependencies.
 #
 # Usage: scripts/build-appimage.sh
-# Output: dist/PEAR-Configurator-x86_64.AppImage
+# Output: dist/PEAR-Configurator-<arch>.AppImage
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-ARCH=x86_64
+ARCH="${ARCH:-$(uname -m)}"
 TOOLS="$ROOT/.appimage-tools"
 OUT="$ROOT/dist"
 APPDIR="$ROOT/.appdir"

@@ -4,7 +4,7 @@ A desktop app that restores Apple devices with a single click while they are in
 **DFU** or **recovery** mode.
 
 - **Built with:** Rust + [Slint](https://slint.dev) (native desktop UI)
-- **Platform:** Linux (Wayland / X11)
+- **Platform:** Linux, x86_64 and arm64 (Wayland / X11)
 - **Supported devices:** iPhone, iPad, iPod, Apple TV and **Apple Silicon Mac**
 
 Inspired by libimobiledevice and restorekit.
@@ -37,12 +37,12 @@ Two restore modes are available:
 
 ## Quick start (AppImage)
 
-Download the latest `PEAR-Configurator-x86_64.AppImage` from the
+Download the AppImage for your architecture (`x86_64` or `aarch64`) from the
 [Releases](https://github.com/denizomer10/pear-configurator/releases) page:
 
 ```sh
-chmod +x PEAR-Configurator-x86_64.AppImage
-./PEAR-Configurator-x86_64.AppImage
+chmod +x PEAR-Configurator-<arch>.AppImage
+./PEAR-Configurator-<arch>.AppImage
 ```
 
 The AppImage bundles all runtime libraries and the `idevicerestore` toolchain,
@@ -83,7 +83,12 @@ scripts/build-appimage.sh   # -> dist/PEAR-Configurator-x86_64.AppImage
 ```
 
 It uses `linuxdeploy` and `appimagetool` (downloaded automatically) and bundles
-the runtime libraries plus the Apple toolchain into a single file.
+the runtime libraries plus the Apple toolchain into a single file. The build is
+architecture-aware: it produces `PEAR-Configurator-x86_64.AppImage` on x86_64
+and `PEAR-Configurator-aarch64.AppImage` on aarch64.
+
+Prebuilt AppImages for both architectures are produced by CI
+(`.github/workflows/build-appimage.yml`) on every `v*` tag.
 
 ## Running
 
@@ -138,4 +143,4 @@ cargo test
 
 ## License
 
-**GNU General Public License v2.0 (GPLv2)** — see [LICENSE](LICENSE).
+**MIT** — see [LICENSE](LICENSE).
