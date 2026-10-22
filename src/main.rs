@@ -8,6 +8,7 @@ mod irecovery;
 mod manager;
 mod net;
 mod restore;
+mod udev;
 mod usb;
 
 slint::include_modules!();
@@ -38,6 +39,41 @@ fn main() -> Result<(), slint::PlatformError> {
     manager.start();
 
     let ui = AppWindow::new()?;
+
+    // --- First-run setup: install the udev rule when it is missing ---
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_setup_install(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                ui.set_setup_error(false);
+                ui.set_setup_done(false);
+                ui.set_setup_busy(true);
+                ui.set_setup_status("Waiting for administrator permission…".into());
+                start_udev_install(&ui);
+            }
+        });
+    }
+    {
+        let ui_weak = ui.as_weak();
+        ui.on_setup_quit(move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let _ = ui.hide();
+            }
+            let _ = slint::quit_event_loop();
+        });
+    }
+
+    if !udev::is_installed() {
+        ui.set_setup_visible(true);
+        ui.set_setup_message(
+            "PEAR needs a one-time USB access rule to talk to Apple devices in DFU or recovery mode. \
+             Administrator permission is required to install it."
+                .into(),
+        );
+        ui.set_setup_status("Waiting for administrator permission…".into());
+        ui.set_setup_busy(true);
+        start_udev_install(&ui);
+    }
 
     // --- Buttons: confirmation dialog and starting jobs ---
     {
@@ -89,6 +125,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_weak = ui.as_weak();
         let mut last_sig: (String, usize) = (String::new(), usize::MAX);
         let mut last_log_len: usize = usize::MAX;
+        let mut setup_done_at: Option<std::time::Instant> = None;
         timer.start(TimerMode::Repeated, Duration::from_millis(250), move || {
             let ui = match ui_weak.upgrade() {
                 Some(ui) => ui,
@@ -120,7 +157,19 @@ fn main() -> Result<(), slint::PlatformError> {
                 && snap.identified
                 && !running
                 && snap.tools.ready;
-            ui.set_can_restore(base && !list.is_empty());
+            ui.set_can_restore(base && !list.is_empty() && !ui.get_setup_visible());
+
+            // Auto-close the first-run setup window once the rule is installed.
+            if ui.get_setup_done() {
+                let now = std::time::Instant::now();
+                let since = *setup_done_at.get_or_insert(now);
+                if now.duration_since(since) >= Duration::from_millis(1200) {
+                    ui.set_setup_visible(false);
+                    setup_done_at = None;
+                }
+            } else {
+                setup_done_at = None;
+            }
 
             // Log (newest first)
             if snap.job.log.len() != last_log_len {
@@ -139,6 +188,33 @@ fn main() -> Result<(), slint::PlatformError> {
     }
 
     ui.run()
+}
+
+fn start_udev_install(ui: &AppWindow) {
+    let ui_weak = ui.as_weak();
+    std::thread::spawn(move || {
+        let result = udev::install();
+        let _ = slint::invoke_from_event_loop(move || {
+            let ui = match ui_weak.upgrade() {
+                Some(ui) => ui,
+                None => return,
+            };
+            match result {
+                Ok(()) => {
+                    ui.set_setup_busy(false);
+                    ui.set_setup_done(true);
+                    ui.set_setup_error(false);
+                    ui.set_setup_status("Installed. Ready to use.".into());
+                }
+                Err(err) => {
+                    ui.set_setup_busy(false);
+                    ui.set_setup_done(false);
+                    ui.set_setup_error(true);
+                    ui.set_setup_status(err.into());
+                }
+            }
+        });
+    });
 }
 
 fn start_restore(manager: &Arc<Manager>, ui_weak: &slint::Weak<AppWindow>, erase: bool) {

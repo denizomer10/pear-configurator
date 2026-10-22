@@ -1,9 +1,8 @@
 # PEAR Configurator: allow access to Apple devices (including DFU / recovery mode).
 #
-# Grants the `plugdev` group write access to Apple devices so that libusb
-# (and therefore irecovery / idevicerestore) can talk to devices in DFU mode.
-#
-# Install:
-#   sudo install -m 644 scripts/99-pear-apple.rules /etc/udev/rules.d/99-pear-apple.rules
-#   sudo udevadm control --reload-rules && sudo udevadm trigger
-SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", MODE="0660", GROUP="plugdev"
+# This rule is installed automatically by the app on first launch (it asks for
+# administrator permission once). It works on Arch, Debian, Fedora and other
+# systemd-based distributions: TAG+="uaccess" grants the active local user
+# access to the device without requiring a distribution-specific group such as
+# "plugdev".
+SUBSYSTEM=="usb", ATTR{idVendor}=="05ac", TAG+="uaccess"

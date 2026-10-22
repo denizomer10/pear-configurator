@@ -27,13 +27,11 @@ Two restore modes are available:
 ## Requirements
 
 - A Linux desktop (Wayland or X11)
-- Either the prebuilt **AppImage** (no dependencies), or the following to build
-  from source:
-  - Rust (installable via rustup)
-  - System libraries: `libfontconfig1-dev`, `libfreetype-dev`
-- `idevicerestore` and `irecovery` (installed by the script below, or bundled in
-  the AppImage)
-- A udev rule for USB access to DFU devices
+- The prebuilt **AppImage** — it bundles the GUI runtime, `idevicerestore`,
+  `irecovery` and every other dependency, so nothing has to be installed
+  separately.
+- Administrator permission **once**, on first launch, so the app can install its
+  USB access (udev) rule.
 
 ## Quick start (AppImage)
 
@@ -47,36 +45,29 @@ chmod +x PEAR-Configurator-<arch>.AppImage
 
 The AppImage bundles all runtime libraries and the `idevicerestore` toolchain,
 so nothing needs to be installed on the system (a desktop with Wayland or X11 is
-still required). The udev rule below is still needed for USB access.
+still required).
 
-## Installation
+On the first launch the app checks whether its USB access rule is installed. If
+it is missing, a setup window asks for administrator permission (the system
+password dialog), installs the rule for the running distribution (Arch, Debian,
+Fedora, …), reloads udev and closes automatically. The rule is written to
+`/etc/udev/rules.d/99-pear-apple.rules`. After that the app is ready to use — no
+manual udev or libimobiledevice setup is needed.
 
-### 1) Build the app
+## Building from source (developers)
+
+The AppImage is the recommended way to run PEAR. To build locally:
 
 ```sh
 sudo apt-get install -y build-essential pkg-config libfontconfig1-dev libfreetype-dev
 cargo build --release
 ```
 
-### 2) Install the Apple toolchain
+For local development builds, `scripts/install-toolchain.sh` can build
+`idevicerestore` and `irecovery` into `~/.pear/toolchain`; the AppImage build
+bundles them automatically.
 
-```sh
-scripts/install-toolchain.sh --deps   # build dependencies via apt (needs sudo)
-scripts/install-toolchain.sh          # builds idevicerestore + irecovery
-```
-
-The tools are installed under `~/.pear/toolchain` (no root required).
-
-### 3) USB access rule (udev)
-
-```sh
-sudo install -m 644 scripts/99-pear-apple.rules /etc/udev/rules.d/99-pear-apple.rules
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
-
-The user must be in the `plugdev` group.
-
-### 4) (Optional) Build a self-contained AppImage
+To produce a self-contained AppImage:
 
 ```sh
 scripts/build-appimage.sh   # -> dist/PEAR-Configurator-x86_64.AppImage
@@ -136,6 +127,8 @@ cargo test
 
 ## Warnings
 
+- On first launch the app asks for administrator permission once to install its
+  udev rule. This is required for USB access to DFU/recovery devices.
 - **Erase & Install cannot be undone**; all data on the device is erased.
 - Apple Silicon Mac restore requires a recent `idevicerestore` (hence the tools
   are built from source).

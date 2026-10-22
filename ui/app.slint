@@ -109,6 +109,15 @@ export component AppWindow inherits Window {
     in-out property <bool> can-restore: false;
     in-out property <bool> confirm-visible: false;
 
+    // First-run setup (udev rule)
+    in-out property <bool> setup-visible: false;
+    in-out property <string> setup-title: "USB access permission";
+    in-out property <string> setup-message: "";
+    in-out property <string> setup-status: "";
+    in-out property <bool> setup-busy: false;
+    in-out property <bool> setup-done: false;
+    in-out property <bool> setup-error: false;
+
     callback erase-clicked();
     callback update-clicked();
     callback cancel-clicked();
@@ -116,6 +125,8 @@ export component AppWindow inherits Window {
     callback confirm-accept();
     callback confirm-cancel();
     callback firmware-selected(int);
+    callback setup-install();
+    callback setup-quit();
 
     VerticalLayout {
         padding: 22px;
@@ -335,6 +346,74 @@ export component AppWindow inherits Window {
                             font-family: "monospace";
                             wrap: no-wrap;
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- First-run setup dialog (udev rule) ----
+    if root.setup-visible: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #04060ce8;
+
+        Rectangle {
+            width: 520px;
+            height: 300px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            border-radius: 18px;
+            background: #121523;
+            border-width: 1px;
+            border-color: #788cdc24;
+
+            VerticalLayout {
+                padding: 26px;
+                spacing: 14px;
+
+                Text {
+                    text: root.setup-title;
+                    color: #e9ecf8;
+                    font-size: 19px;
+                    font-weight: 700;
+                }
+                Text {
+                    text: root.setup-message;
+                    color: #9aa3c4;
+                    font-size: 13px;
+                    wrap: word-wrap;
+                    vertical-stretch: 1;
+                }
+                Text {
+                    text: root.setup-status;
+                    color: root.setup-error ? #ff8a9a : (root.setup-done ? #35d49a : #b7c0e0);
+                    font-size: 13px;
+                    font-weight: 600;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+                    ActionButton {
+                        width: 120px;
+                        height: 44px;
+                        title: "Quit";
+                        subtitle: "";
+                        base-color: #ffffff12;
+                        active: !root.setup-busy;
+                        clicked => { root.setup-quit(); }
+                    }
+                    ActionButton {
+                        width: 170px;
+                        height: 44px;
+                        title: root.setup-busy ? "Installing…" : (root.setup-done ? "Installed" : "Install");
+                        subtitle: "";
+                        base-color: @linear-gradient(135deg, #6d8bff, #9b6dff);
+                        active: !root.setup-busy && !root.setup-done;
+                        clicked => { root.setup-install(); }
                     }
                 }
             }
