@@ -92,14 +92,19 @@ fn parse_hex_u64(value: &str) -> Option<u64> {
     u64::from_str_radix(strip_hex_prefix(value.trim()), 16).ok()
 }
 
+fn query_args(ecid: Option<u64>) -> Vec<String> {
+    let mut args = vec!["-q".into()];
+    if let Some(ecid) = ecid {
+        args.extend(["-i".into(), format!("0x{ecid:x}")]);
+    }
+    args
+}
+
 /// Queries the attached device; returns `None` on failure.
 pub fn query(ecid: Option<u64>) -> Option<IRecoveryInfo> {
     let tool = find_irecovery()?;
     let mut cmd = Command::new(tool);
-    cmd.arg("-q");
-    if let Some(ecid) = ecid {
-        cmd.arg("-e").arg(format!("0x{:x}", ecid));
-    }
+    cmd.args(query_args(ecid));
     // Point at the toolchain libraries via LD_LIBRARY_PATH.
     let lib = config::lib_dir();
     let mut ld = lib.to_string_lossy().to_string();
@@ -121,6 +126,13 @@ pub fn query(ecid: Option<u64>) -> Option<IRecoveryInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn query_targets_ecid_instead_of_executing_a_script() {
+        assert_eq!(query_args(Some(0xabcd)), vec!["-q", "-i", "0xabcd"]);
+        assert_eq!(query_args(None), vec!["-q"]);
+        assert!(!query_args(Some(1)).iter().any(|s| s == "-e"));
+    }
 
     #[test]
     fn parse_sample() {
