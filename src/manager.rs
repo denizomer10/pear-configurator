@@ -313,8 +313,18 @@ impl Manager {
         device: &Option<UsbDevice>,
         irecv: &Option<irecovery::IRecoveryInfo>,
     ) -> Option<DeviceEntry> {
+        let fallback = irecv
+            .as_ref()
+            .filter(|i| i.identifier.contains(','))
+            .map(|i| DeviceEntry {
+                identifier: i.identifier.clone(),
+                name: i.identifier.clone(),
+                boardconfig: i.model.clone(),
+            });
         let guard = self.db.read().ok()?;
-        let db = guard.as_ref()?;
+        let Some(db) = guard.as_ref() else {
+            return fallback;
+        };
         let cpid = irecv
             .as_ref()
             .and_then(|i| i.cpid)
@@ -331,7 +341,7 @@ impl Manager {
             .as_ref()
             .map(|i| i.identifier.as_str())
             .filter(|id| !id.is_empty());
-        db.resolve(cpid, bdid, model, identifier)
+        db.resolve(cpid, bdid, model, identifier).or(fallback)
     }
 
     fn ensure_firmware(&self, identifier: &str) {
@@ -1110,6 +1120,15 @@ mod tests {
         }
         assert!(!me.snapshot().connected);
         assert_eq!(me.snapshot().selected_key, "ecid:b");
+    }
+
+    #[test]
+    fn recovery_product_identity_works_before_database_loads() {
+        let me = Manager::new();
+        let info = irecovery::parse_query_output("PRODUCT: iPhone17,5\nMODEL: v59ap\n");
+        let entry = me.resolve_entry(&None, &Some(info)).unwrap();
+        assert_eq!(entry.identifier, "iPhone17,5");
+        assert_eq!(entry.boardconfig, "v59ap");
     }
 
     #[test]
