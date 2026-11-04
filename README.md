@@ -31,7 +31,7 @@ PEAR Configurator brings device discovery, firmware downloads, and `ideviceresto
 
 The identification database covers iPhone, iPad, iPod, Apple TV, and Apple Silicon Mac models. Restore compatibility depends on the device, firmware signing status, and bundled Apple tools. Physical DFU restoration has not yet been verified for this release.
 
-### New in the development build (v0.2.4)
+### New in v0.2.4
 
 - A device selector lists all connected devices with individual mode and identity information.
 - A restore queue stores separate firmware and erase/update choices for each device. It processes devices sequentially, targets every restore by ECID, and records individual results. Cancellation skips the remaining entries.
@@ -45,7 +45,7 @@ To restore several devices, enable **Queue for multiple devices**, select a devi
 
 *Queue preview with illustrative device identities and firmware; no restore is performed.*
 
-Normal-mode identification uses `ideviceinfo`; the recovery button uses `ideviceenterrecovery`. Both are included by the updated AppImage build script. The host must run `usbmuxd`; unlocking the device and accepting Trust may be required. The published v0.2.2 package does not include these new controls.
+Normal-mode identification uses `ideviceinfo`; the recovery button uses `ideviceenterrecovery`. Both are included by the updated AppImage build script. The host must run `usbmuxd`; unlocking the device and accepting Trust may be required. These controls are included in the v0.2.4 package.
 
 ## Getting started
 
@@ -54,27 +54,27 @@ Normal-mode identification uses `ideviceinfo`; the recovery button uses `idevice
 Download the AppImage and checksum file from [GitHub Releases](https://github.com/denizomer10/pear-configurator/releases/latest), then run:
 
 ```sh
-sha256sum -c SHA256SUMS-x86_64.txt
-chmod +x PEAR-Configurator-x86_64.AppImage
-./PEAR-Configurator-x86_64.AppImage
+sha256sum -c SHA256SUMS-v0.2.4.txt
+chmod +x PEAR-Configurator-v0.2.4-x86_64.AppImage
+./PEAR-Configurator-v0.2.4-x86_64.AppImage
 ```
 
-**Current release: v0.2.2**
+**Current release: v0.2.4**
 
 | Requirement | Details |
 | --- | --- |
-| Architecture | x86_64; an ARM64 package is not included in v0.2.2 |
+| Architecture | x86_64; an ARM64 package is not included in v0.2.4 |
 | Linux runtime | glibc 2.43 or newer; this package was built locally on Ubuntu 26.04 |
 | Desktop | Wayland or X11 |
 | USB setup | Administrator authorization to install the access rule |
 | Connection | USB cable suitable for your device; internet access for firmware lookup and downloads |
 
-The AppImage includes the application, `idevicerestore`, `irecovery`, and bundled shared libraries. It still relies on a compatible host glibc and desktop environment. The Apple tools in v0.2.2 are reused from the v0.2.0 release.
+The AppImage includes the application, `idevicerestore`, `irecovery`, and bundled shared libraries. It still relies on a compatible host glibc and desktop environment. The restore tools are reused from the v0.2.0 release; normal-mode utilities are libimobiledevice 1.4.0.
 
 If your system cannot mount AppImages through FUSE, use:
 
 ```sh
-APPIMAGE_EXTRACT_AND_RUN=1 ./PEAR-Configurator-x86_64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./PEAR-Configurator-v0.2.4-x86_64.AppImage
 ```
 
 ### 2. Enable USB access
@@ -107,14 +107,14 @@ Review **Activity** for output from both restore streams. Logs are stored in `~/
 
 ### AppImage reports a missing GLIBC version
 
-The v0.2.2 binary requires glibc 2.43 or newer. On an older distribution, build from source on that system rather than replacing its system glibc.
+The v0.2.4 binary requires glibc 2.43 or newer. On an older distribution, build from source on that system rather than replacing its system glibc.
 
 ### Window does not open
 
 Try selecting the software renderer:
 
 ```sh
-SLINT_BACKEND=winit-software ./PEAR-Configurator-x86_64.AppImage
+SLINT_BACKEND=winit-software ./PEAR-Configurator-v0.2.4-x86_64.AppImage
 ```
 
 For bug reports, include your Linux distribution, app version, device model/mode, and relevant Activity output. Remove device identifiers and other personal information before sharing logs.
@@ -145,7 +145,7 @@ bash scripts/build-appimage.sh
 
 The script downloads `linuxdeploy` and `appimagetool`, builds the release binary, and bundles the installed Apple toolchain. Packaging fails if any of `idevicerestore`, `irecovery`, `ideviceinfo`, or `ideviceenterrecovery` is missing.
 
-The output is `dist/PEAR-Configurator-x86_64.AppImage` on x86_64, or `dist/PEAR-Configurator-aarch64.AppImage` when built natively on ARM64. The host environment determines the resulting runtime requirements.
+The build script outputs `dist/PEAR-Configurator-x86_64.AppImage` on x86_64, or `dist/PEAR-Configurator-aarch64.AppImage` when built natively on ARM64. The host environment determines the resulting runtime requirements.
 
 Releases are built locally and uploaded to GitHub Releases. The optional GitHub Actions workflow runs only when manually dispatched.
 
