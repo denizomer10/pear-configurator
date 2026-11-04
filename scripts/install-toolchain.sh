@@ -73,11 +73,19 @@ build_repo() {
   else
     git clone --depth 1 --branch "$branch" "$url" "$dir"
   fi
+  local configure_args=(--prefix="$PREFIX" --disable-static)
+  # PEAR installs its own access rule at runtime; toolchain builds are unprivileged.
+  if [[ "$name" == "libirecovery" ]]; then
+    configure_args+=(--without-udev)
+  fi
+  if [[ "$name" == "libplist" || "$name" == "libimobiledevice" ]]; then
+    configure_args+=(--without-cython)
+  fi
   ( cd "$dir"
     if [[ -x ./autogen.sh ]]; then
-      ./autogen.sh --prefix="$PREFIX" --disable-static
+      ./autogen.sh "${configure_args[@]}"
     elif [[ -x ./configure ]]; then
-      ./configure --prefix="$PREFIX" --disable-static
+      ./configure "${configure_args[@]}"
     else
       err "$name has no build script"; exit 1
     fi

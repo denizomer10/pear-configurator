@@ -1,6 +1,6 @@
 [package]
 name = "pear-configurator"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "PEAR Configurator - one-click restore tool for Apple devices (DFU / recovery mode)"
 license = "MIT"
