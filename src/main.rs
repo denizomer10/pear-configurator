@@ -8,17 +8,19 @@ mod irecovery;
 mod manager;
 mod mobile;
 mod net;
+mod queue;
 mod restore;
 mod udev;
 mod usb;
 
 slint::include_modules!();
 
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
 use crate::ipsw::Firmware;
 use crate::manager::{Manager, Snapshot};
@@ -45,6 +47,7 @@ fn main() -> Result<(), slint::PlatformError> {
     manager.start();
 
     let ui = AppWindow::new()?;
+    let pending: Rc<RefCell<Vec<queue::RestoreRequest>>> = Rc::new(RefCell::new(Vec::new()));
 
     // --- First-run setup: install the udev rule when it is missing ---
     {
@@ -81,38 +84,123 @@ fn main() -> Result<(), slint::PlatformError> {
         start_udev_install(&ui);
     }
 
-    // --- Buttons: confirmation dialog and starting jobs ---
+    // Freeze targets and firmware before opening any confirmation dialog.
     {
-        let ui_weak = ui.as_weak();
+        let manager = manager.clone();
+        let weak = ui.as_weak();
+        let pending = pending.clone();
         ui.on_erase_clicked(move || {
-            if let Some(ui) = ui_weak.upgrade() {
-                ui.set_confirm_visible(true);
+            let Some(ui) = weak.upgrade() else { return; };
+            match prepare_request(&manager, &ui, true) {
+                Ok(request) if ui.get_queue_mode() => {
+                    if let Err(error) = manager.add_to_queue(request) { manager.report_error(&error); }
+                    ui.set_queue_visible(true);
+                }
+                Ok(request) => {
+                    ui.set_confirmation_text(format!("The following device will be permanently erased:\n\n{}\n\nThis cannot be undone.",request.summary()).into());
+                    *pending.borrow_mut() = vec![request]; ui.set_confirm_visible(true);
+                }
+                Err(error) => manager.report_error(&error),
             }
         });
     }
     {
-        let ui_weak = ui.as_weak();
+        let weak = ui.as_weak();
+        let pending = pending.clone();
         ui.on_confirm_cancel(move || {
-            if let Some(ui) = ui_weak.upgrade() {
+            pending.borrow_mut().clear();
+            if let Some(ui) = weak.upgrade() {
                 ui.set_confirm_visible(false);
             }
         });
     }
     {
         let manager = manager.clone();
-        let ui_weak = ui.as_weak();
+        let weak = ui.as_weak();
+        let pending = pending.clone();
         ui.on_confirm_accept(move || {
-            if let Some(ui) = ui_weak.upgrade() {
+            let requests = std::mem::take(&mut *pending.borrow_mut());
+            if let Some(ui) = weak.upgrade() {
                 ui.set_confirm_visible(false);
+                ui.set_queue_visible(false);
             }
-            start_restore(&manager, &ui_weak, true);
+            manager.start_requests(requests);
         });
     }
     {
         let manager = manager.clone();
-        let ui_weak = ui.as_weak();
+        let weak = ui.as_weak();
         ui.on_update_clicked(move || {
-            start_restore(&manager, &ui_weak, false);
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            match prepare_request(&manager, &ui, false) {
+                Ok(request) if ui.get_queue_mode() => {
+                    if let Err(error) = manager.add_to_queue(request) {
+                        manager.report_error(&error);
+                    }
+                    ui.set_queue_visible(true);
+                }
+                Ok(request) => {
+                    manager.start_requests(vec![request]);
+                }
+                Err(error) => manager.report_error(&error),
+            }
+        });
+    }
+    {
+        let manager = manager.clone();
+        let weak = ui.as_weak();
+        ui.on_device_selected(move |index| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            if let Some(key) = ui.get_device_keys().row_data(index.max(0) as usize) {
+                manager.select_device(key.as_str());
+            }
+        });
+    }
+    {
+        let manager = manager.clone();
+        ui.on_queue_remove(move |key| manager.remove_from_queue(key.as_str()));
+    }
+    {
+        let manager = manager.clone();
+        ui.on_queue_clear(move || manager.clear_queue());
+    }
+    {
+        let manager = manager.clone();
+        let weak = ui.as_weak();
+        let pending = pending.clone();
+        ui.on_queue_start(move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let requests = manager.pending_requests();
+            if requests.is_empty() {
+                return;
+            }
+            let summary = requests
+                .iter()
+                .map(|r| r.summary())
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            let warning = if requests.iter().any(|r| r.erase) {
+                "Entries marked ERASE ALL DATA will be permanently erased. This cannot be undone."
+            } else {
+                "Update/revive will be attempted. Data preservation is not guaranteed."
+            };
+            ui.set_confirmation_text(
+                format!(
+                    "Restore {} queued devices in order:\n\n{}\n\n{}",
+                    requests.len(),
+                    summary,
+                    warning
+                )
+                .into(),
+            );
+            *pending.borrow_mut() = requests;
+            ui.set_confirm_visible(true);
         });
     }
     {
@@ -138,6 +226,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let ui_weak = ui.as_weak();
         let mut last_sig: (String, usize) = (String::new(), usize::MAX);
         let mut last_log: Vec<String> = Vec::new();
+        let mut last_devices = Vec::new();
         let mut setup_done_at: Option<std::time::Instant> = None;
         timer.start(TimerMode::Repeated, Duration::from_millis(250), move || {
             let ui = match ui_weak.upgrade() {
@@ -146,6 +235,41 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             let snap = manager.snapshot();
             apply_snapshot(&ui, &snap);
+            if snap.devices != last_devices {
+                last_devices = snap.devices.clone();
+                let labels: Vec<SharedString> = snap
+                    .devices
+                    .iter()
+                    .map(|(_, label)| label.as_str().into())
+                    .collect();
+                let keys: Vec<SharedString> = snap
+                    .devices
+                    .iter()
+                    .map(|(key, _)| key.as_str().into())
+                    .collect();
+                ui.set_device_model(ModelRc::from(Rc::new(VecModel::from(labels))));
+                ui.set_device_keys(ModelRc::from(Rc::new(VecModel::from(keys))));
+            }
+            ui.set_device_index(
+                snap.devices
+                    .iter()
+                    .position(|(key, _)| key == &snap.selected_key)
+                    .map(|i| i as i32)
+                    .unwrap_or(-1),
+            );
+            ui.set_selected_device_key(snap.selected_key.clone().into());
+            let rows: Vec<QueueRow> = snap
+                .queue
+                .iter()
+                .map(|i| QueueRow {
+                    key: i.request.key.clone().into(),
+                    label: i.request.summary().into(),
+                    status: i.status.clone().into(),
+                })
+                .collect();
+            ui.set_queue_rows(ModelRc::from(Rc::new(VecModel::from(rows))));
+            ui.set_queue_count(snap.queue.len() as i32);
+            ui.set_queue_pending(snap.queue.iter().any(|i| i.status == "Queued"));
 
             // Firmware list (once the device is identified)
             let identifier = snap.identifier.clone().unwrap_or_default();
@@ -166,12 +290,13 @@ fn main() -> Result<(), slint::PlatformError> {
             }
 
             // Enable buttons only when the firmware list is ready.
-            let running = snap.job.status == "running";
+            let running = snap.busy;
             let base = snap.connected
                 && snap.is_restorable
                 && snap.identified
                 && !running
-                && snap.tools.ready;
+                && snap.tools.ready
+                && snap.ecid.is_some_and(|e| e != 0);
             ui.set_can_restore(base && !list.is_empty() && !ui.get_setup_visible());
 
             // Auto-close the first-run setup window once the rule is installed.
@@ -232,16 +357,15 @@ fn start_udev_install(ui: &AppWindow) {
     });
 }
 
-fn start_restore(manager: &Arc<Manager>, ui_weak: &slint::Weak<AppWindow>, erase: bool) {
-    let ui = match ui_weak.upgrade() {
-        Some(ui) => ui,
-        None => return,
-    };
+fn prepare_request(
+    manager: &Arc<Manager>,
+    ui: &AppWindow,
+    erase: bool,
+) -> Result<queue::RestoreRequest, String> {
     let list = manager.firmware_list();
     let index = ui.get_firmware_index().max(0) as usize;
-    if let Some(fw) = list.get(index) {
-        manager.start_restore(erase, "", &fw.identifier, &fw.version, &fw.buildid, false);
-    }
+    let fw = list.get(index).ok_or("Choose firmware first")?;
+    manager.prepare_restore(ui.get_selected_device_key().as_str(), fw, erase)
 }
 
 fn cmd_download() {
@@ -307,6 +431,10 @@ fn selftest() {
             snap.ecid
         );
         if line != last {
+            println!("Detected devices: {}", snap.devices.len());
+            for (_, label) in &snap.devices {
+                println!("  {label}");
+            }
             println!("{}", line);
             last = line;
         }
@@ -351,6 +479,7 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
     );
 
     if !snap.connected {
+        ui.set_device_name("Selected device disconnected".into());
         ui.set_specs(ModelRc::from(Rc::new(VecModel::<SharedString>::default())));
     }
     if snap.connected {
@@ -380,8 +509,7 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
         ui.set_specs(ModelRc::from(Rc::new(VecModel::from(specs))));
     }
 
-    let running = snap.job.status == "running";
-    ui.set_job_running(running);
+    ui.set_job_running(snap.busy);
     ui.set_progress(snap.job.progress as f32);
     ui.set_progress_pct(format!("{}%", (snap.job.progress * 100.0).round()).into());
     ui.set_progress_label(
@@ -392,6 +520,7 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
         }
         .into(),
     );
+    ui.set_active_target(snap.job.target.clone().into());
     ui.set_progress_detail(snap.job.detail.clone().into());
 }
 

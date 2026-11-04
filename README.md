@@ -31,11 +31,19 @@ PEAR Configurator brings device discovery, firmware downloads, and `ideviceresto
 
 The identification database covers iPhone, iPad, iPod, Apple TV, and Apple Silicon Mac models. Restore compatibility depends on the device, firmware signing status, and bundled Apple tools. Physical DFU restoration has not yet been verified for this release.
 
-### New in the development build (v0.2.3)
+### New in the development build (v0.2.4)
 
+- A device selector lists all connected devices with individual mode and identity information.
+- A restore queue stores separate firmware and erase/update choices for each device. It processes devices sequentially, targets every restore by ECID, and records individual results. Cancellation skips the remaining entries.
 - Normal-mode iPhone/iPad detection with **Normal Mode**, **Recovery Mode**, and **DFU Mode** labels.
 - **Enter Recovery** requests a restart of the selected normal-mode device and waits for Recovery Mode to appear. It does not start a restore or erase.
 - Direct software entry into DFU is not provided; DFU requires the physical button sequence for the device.
+
+To restore several devices, enable **Queue for multiple devices**, select a device and firmware, then choose **Queue Erase** or **Queue Keep Data**. Close the queue panel, repeat for the other devices, then open **Queue → Start queue**. Review the complete target list before confirming. Devices must already be in DFU or Recovery Mode; use **Enter Recovery** individually for normal-mode devices first. Failed entries do not stop other queued devices, and disconnected targets are never replaced with another connected device. Queue contents are kept in memory for the current app session.
+
+![Two devices queued with separate firmware and restore modes](docs/images/restore-queue.png)
+
+*Queue preview with illustrative device identities and firmware; no restore is performed.*
 
 Normal-mode identification uses `ideviceinfo`; the recovery button uses `ideviceenterrecovery`. Both are included by the updated AppImage build script. The host must run `usbmuxd`; unlocking the device and accepting Trust may be required. The published v0.2.2 package does not include these new controls.
 

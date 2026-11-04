@@ -61,6 +61,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Preview only — no device operations are performed.",
         "Device identified: iPhone15,2 · Normal Mode",
     ]));
+    ui.set_device_model(strings(&[
+        "iPhone 14 Pro · Normal Mode · ECID 1234",
+        "iPad Air · Recovery Mode · ECID 5678",
+    ]));
+    ui.set_device_keys(strings(&["ecid:1234", "ecid:5678"]));
+    ui.set_device_index(0);
     ui.set_normal_mobile(true);
     ui.set_can_enter_recovery(true);
     ui.set_can_restore(false);
@@ -82,5 +88,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         bytes.extend_from_slice(buffer.as_bytes());
         std::fs::write(format!("/tmp/pear-preview-{name}.ppm"), bytes)?;
     }
+    ui.set_queue_count(2);
+    ui.set_queue_pending(true);
+    ui.set_queue_rows(Rc::new(VecModel::from(vec![
+        QueueRow { key: "ecid:1234".into(),label: "iPhone 14 Pro · iPhone15,2 · ECID 1234\nSample firmware (sample build) · ERASE ALL DATA".into(),status: "Queued".into() },
+        QueueRow { key: "ecid:5678".into(),label: "iPad Air · iPad13,1 · ECID 5678\nSample firmware (sample build) · Keep Data".into(),status: "Queued".into() },
+    ])).into());
+    ui.set_queue_visible(true);
+    let mut buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(980, 780);
+    window.request_redraw();
+    window.draw_if_needed(|renderer| {
+        renderer.render(buffer.make_mut_slice(), 980);
+    });
+    let mut bytes = b"P6\n980 780\n255\n".to_vec();
+    bytes.extend_from_slice(buffer.as_bytes());
+    std::fs::write("/tmp/pear-preview-queue.ppm", bytes)?;
     Ok(())
 }

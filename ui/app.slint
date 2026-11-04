@@ -1,4 +1,4 @@
-import { ComboBox, ScrollView } from "std-widgets.slint";
+import { Button, ComboBox, ScrollView } from "std-widgets.slint";
 
 // Small status pill (tool / info badges).
 component Pill inherits Rectangle {
@@ -83,6 +83,8 @@ component ActionButton inherits Rectangle {
     }
 }
 
+export struct QueueRow { key: string, label: string, status: string }
+
 export component AppWindow inherits Window {
     title: "PEAR Configurator";
     preferred-width: 1140px;
@@ -91,6 +93,20 @@ export component AppWindow inherits Window {
     min-height: 780px;
     background: #0d1513;
     default-font-size: 13px;
+    in property <[string]> device-model: [];
+    in property <[string]> device-keys: [];
+    in-out property <int> device-index: -1;
+    in-out property <string> selected-device-key: "";
+    callback device-selected(int);
+    in-out property <bool> queue-mode: false;
+    in-out property <bool> queue-visible: false;
+    in-out property <int> queue-count: 0;
+    in-out property <bool> queue-pending: false;
+    in property <[QueueRow]> queue-rows: [];
+    in-out property <string> confirmation-text: "";
+    callback queue-remove(string);
+    callback queue-clear();
+    callback queue-start();
     // Device
     in-out property <bool> device-connected: false;
     in-out property <string> device-name: "Waiting for device…";
@@ -111,6 +127,7 @@ export component AppWindow inherits Window {
     in property <[string]> firmware-model: [];
     in-out property <int> firmware-index: 0;
 
+    in-out property <string> active-target: "";
     // Progress
     in-out property <float> progress: 0.0;
     in-out property <string> progress-pct: "0%";
@@ -160,13 +177,19 @@ export component AppWindow inherits Window {
                 Text { text: "CONFIGURATOR"; color: #8fa49a; font-size: 10px; letter-spacing: 2px; }
                 Rectangle { height: 1px; background: #293b33; }
                 Pill { label: root.device-connected ? "Device connected" : "Waiting for device"; dot-color: root.device-connected ? #d7f9a5 : #8fa49a; }
+                if root.device-model.length > 0: ComboBox {
+                    model: root.device-model;
+                    current-index <=> root.device-index;
+                    enabled: !root.job-running && !root.confirm-visible && !root.queue-visible;
+                    selected(value) => { root.device-selected(root.device-index); }
+                }
                 Text { text: "01 / CONNECT"; color: #d7f9a5; font-size: 11px; font-weight: 600; }
                 Rectangle {
-                    height: root.normal-mobile ? 72px : 104px;
+                    height: root.normal-mobile || root.device-model.length > 1 ? 72px : 104px;
                     border-radius: 14px;
                     background: #203229;
-                    Rectangle { x: (parent.width - 64px) / 2; y: root.normal-mobile ? 10px : 22px; width: 64px; height: 43px; border-radius: 6px; border-width: 2px; border-color: #d7f9a5; }
-                    Rectangle { x: (parent.width - 24px) / 2; y: root.normal-mobile ? 58px : 72px; width: 24px; height: 4px; border-radius: 2px; background: #d7f9a5; }
+                    Rectangle { x: (parent.width - 64px) / 2; y: root.normal-mobile || root.device-model.length > 1 ? 10px : 22px; width: 64px; height: 43px; border-radius: 6px; border-width: 2px; border-color: #d7f9a5; }
+                    Rectangle { x: (parent.width - 24px) / 2; y: root.normal-mobile || root.device-model.length > 1 ? 58px : 72px; width: 24px; height: 4px; border-radius: 2px; background: #d7f9a5; }
                 }
                 Text { text: root.device-connected ? root.device-name : "Connect your device"; color: #f0f5ed; font-size: 20px; font-weight: 600; wrap: word-wrap; }
                 Pill { label: root.device-connected ? root.mode-label : "USB connection required"; dot-color: root.mode-color; }
@@ -183,8 +206,8 @@ export component AppWindow inherits Window {
                 }
                 for spec in root.specs: Text { text: spec; color: #9eb2a6; font-size: 11px; wrap: word-wrap; }
                 Rectangle { vertical-stretch: 1; }
-                if !root.normal-mobile: Text { text: "Before you begin"; color: #edf3e9; font-size: 13px; font-weight: 600; }
-                if !root.normal-mobile: Text { text: "Use a reliable USB cable. Keep the device connected throughout the restore."; color: #8fa49a; font-size: 12px; wrap: word-wrap; }
+                if !root.normal-mobile && root.device-model.length < 2: Text { text: "Before you begin"; color: #edf3e9; font-size: 13px; font-weight: 600; }
+                if !root.normal-mobile && root.device-model.length < 2: Text { text: "Use a reliable USB cable. Keep the device connected throughout the restore."; color: #8fa49a; font-size: 12px; wrap: word-wrap; }
                 Rectangle { height: 1px; background: #293b33; }
                 Text { text: root.tools-ready ? "●  Restore tools available" : "●  Restore tools missing"; color: root.tools-ready ? #d7f9a5 : #ffad93; font-size: 11px; }
             }
@@ -202,7 +225,7 @@ export component AppWindow inherits Window {
                 Pill { width: 180px; label: root.job-running ? "In progress" : "Restore workspace"; dot-color: #d7f9a5; }
             }
             Rectangle {
-                height: 280px;
+                height: 310px;
                 border-radius: 20px;
                 background: #18231e;
                 border-width: 1px;
@@ -210,6 +233,18 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     padding: 24px;
                     spacing: 14px;
+                    HorizontalLayout {
+                        Rectangle {
+                            width: 20px; height: 20px; border-radius: 4px;
+                            border-width: 1px; border-color: #8fa49a;
+                            background: root.queue-mode ? #d7f9a5 : #203229;
+                            Text { text: root.queue-mode ? "✓" : ""; color: #18231e; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { enabled: !root.job-running && !root.confirm-visible; mouse-cursor: pointer; clicked => { root.queue-mode = !root.queue-mode; } }
+                        }
+                        Text { text: "Queue for multiple devices"; color: #a8b9a9; font-size: 12px; vertical-alignment: center; }
+                        Rectangle { horizontal-stretch: 1; }
+                        Button { text: "Queue (" + root.queue-count + ")"; clicked => { root.queue-visible = true; } }
+                    }
                     Text { text: "02 / CHOOSE FIRMWARE"; color: #d7f9a5; font-size: 11px; font-weight: 600; }
                     Text { text: "Choose your next version"; color: #edf3e9; font-size: 21px; font-weight: 600; }
                     ComboBox {
@@ -221,8 +256,8 @@ export component AppWindow inherits Window {
                     Text { text: root.normal-mobile ? "Enter Recovery Mode using the device panel before restoring." : root.device-connected ? "Select firmware, then choose how to restore your device." : "Connect a device in DFU or recovery mode to load firmware."; color: #91a598; font-size: 12px; wrap: word-wrap; }
                     HorizontalLayout {
                         spacing: 12px;
-                        ActionButton { horizontal-stretch: 1; title: "Keep Data"; subtitle: "Attempt update / revive"; base-color: #345344; active: root.can-restore; clicked => { root.update-clicked(); } }
-                        ActionButton { horizontal-stretch: 1; title: "Erase & Install"; subtitle: "Permanently removes all data"; base-color: #794d3d; active: root.can-restore; clicked => { root.erase-clicked(); } }
+                        ActionButton { horizontal-stretch: 1; title: root.queue-mode ? "Queue Keep Data" : "Keep Data"; subtitle: "Attempt update / revive"; base-color: #345344; active: root.can-restore; clicked => { root.update-clicked(); } }
+                        ActionButton { horizontal-stretch: 1; title: root.queue-mode ? "Queue Erase" : "Erase & Install"; subtitle: "Permanently removes all data"; base-color: #794d3d; active: root.can-restore; clicked => { root.erase-clicked(); } }
                     }
                 }
             }
@@ -237,6 +272,7 @@ export component AppWindow inherits Window {
                         Text { text: "03 / RESTORE STATUS"; color: #36512b; font-size: 11px; font-weight: 600; horizontal-stretch: 1; }
                         Text { text: root.progress-pct; color: #18281a; font-size: 22px; font-weight: 700; }
                     }
+                    if root.job-running: Text { text: root.active-target; color: #36512b; font-size: 11px; overflow: elide; }
                     Text { text: root.progress-label; color: #18281a; font-size: 15px; font-weight: 600; wrap: word-wrap; }
                     Rectangle { height: 6px; background: #b4d28a; border-radius: 3px; clip: true;
                         Rectangle { width: parent.width * root.progress; height: parent.height; background: #36512b; border-radius: 3px; animate width { duration: 200ms; } }
@@ -275,6 +311,41 @@ export component AppWindow inherits Window {
             }
         }
     }
+    if root.queue-visible: Rectangle {
+        width: parent.width; height: parent.height; background: #04060ce8;
+        TouchArea {}
+        Rectangle {
+            width: 740px; height: 580px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+            border-radius: 18px; background: #18231e; border-width: 1px; border-color: #3c5142;
+            VerticalLayout {
+                padding: 24px; spacing: 14px;
+                Text { text: "Restore queue · " + root.queue-count + " devices"; color: #edf3e9; font-size: 22px; font-weight: 700; }
+                Text { text: "Each device uses its own firmware and mode. Devices run one at a time. Close this panel to select and queue another device."; color: #a8b9a9; wrap: word-wrap; }
+                ScrollView {
+                    VerticalLayout { alignment: start; spacing: 12px;
+                        for row in root.queue-rows: Rectangle {
+                            min-height: 100px; border-radius: 10px; background: #203229;
+                            HorizontalLayout { padding: 12px; spacing: 10px;
+                                VerticalLayout { spacing: 5px; horizontal-stretch: 1;
+                                    Text { text: row.label; color: #edf3e9; wrap: word-wrap; font-size: 12px; }
+                                    Text { text: row.status; color: row.status == "Completed" || row.status == "Queued" || row.status == "Running" ? #d7f9a5 : #ffad93; wrap: word-wrap; font-size: 12px; }
+                                }
+                                Button { text: "Remove"; width: 90px; height: 32px; enabled: !root.job-running && !root.confirm-visible; clicked => { root.queue-remove(row.key); } }
+                            }
+                        }
+                        if root.queue-count == 0: Text { text: "The queue is empty. Enable queue mode, select a device and firmware, then queue a restore."; color: #a8b9a9; wrap: word-wrap; }
+                    }
+                }
+                HorizontalLayout { spacing: 10px;
+                    Button { text: "Clear queue"; enabled: !root.job-running && !root.confirm-visible; clicked => { root.queue-clear(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button { text: "Close"; clicked => { root.queue-visible = false; } }
+                    Button { text: "Start queue"; enabled: root.queue-pending && !root.job-running && !root.setup-visible && !root.confirm-visible; clicked => { root.queue-start(); } }
+                }
+            }
+        }
+    }
+
     // ---- First-run setup dialog (udev rule) ----
     if root.setup-visible: Rectangle {
         x: 0;
@@ -354,8 +425,8 @@ export component AppWindow inherits Window {
         TouchArea {}
 
         Rectangle {
-            width: 460px;
-            height: 220px;
+            width: 720px;
+            height: 500px;
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             border-radius: 18px;
@@ -366,13 +437,11 @@ export component AppWindow inherits Window {
             VerticalLayout {
                 padding: 24px;
                 spacing: 14px;
-                Text { text: "Erase & Install"; color: #edf3e9; font-size: 19px; font-weight: 700; }
-                Text {
-                    text: "All data on the device will be permanently erased and the selected version will be installed from scratch. This cannot be undone.";
-                    color: #a8b9a9;
-                    font-size: 13px;
-                    wrap: word-wrap;
-                    vertical-stretch: 1;
+                Text { text: "Confirm restore"; color: #edf3e9; font-size: 19px; font-weight: 700; }
+                ScrollView {
+                    VerticalLayout { alignment: start;
+                        Text { text: root.confirmation-text; color: #a8b9a9; font-size: 13px; wrap: word-wrap; }
+                    }
                 }
                 HorizontalLayout {
                     spacing: 10px;
@@ -388,7 +457,7 @@ export component AppWindow inherits Window {
                     ActionButton {
                         width: 150px;
                         height: 44px;
-                        title: "Erase & Install";
+                        title: "Start restore";
                         subtitle: "";
                         base-color: @linear-gradient(135deg, #ff4d6d, #ff8a5c);
                         clicked => { root.confirm-accept(); }

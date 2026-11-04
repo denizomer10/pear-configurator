@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::database::{DeviceDatabase, DeviceEntry};
 use crate::ipsw::Firmware;
 use crate::usb::UsbDevice;
-use crate::{config, download, ipsw, irecovery, mobile, restore, usb};
+use crate::{config, download, ipsw, irecovery, mobile, queue, restore, usb};
 
 const DETECT_INTERVAL: Duration = Duration::from_millis(1500);
 const MAX_LOG_LINES: usize = 500;
@@ -21,6 +21,7 @@ const MAX_LOG_LINES: usize = 500;
 pub struct JobSnapshot {
     #[allow(dead_code)]
     pub kind: String,
+    pub target: String,
     pub status: String,
     pub progress: f64,
     pub message: String,
@@ -41,6 +42,10 @@ pub struct ToolsSnapshot {
 
 #[derive(Default, Clone)]
 pub struct Snapshot {
+    pub devices: Vec<(String, String)>,
+    pub selected_key: String,
+    pub busy: bool,
+    pub queue: Vec<queue::QueueItem>,
     pub connected: bool,
     pub can_enter_recovery: bool,
     pub recovery_hint: String,
@@ -62,7 +67,41 @@ pub struct Snapshot {
     pub tools: ToolsSnapshot,
 }
 
+#[derive(Clone)]
+struct DetectedDevice {
+    key: String,
+    device: UsbDevice,
+    irecv: Option<irecovery::IRecoveryInfo>,
+    entry: Option<DeviceEntry>,
+    mobile: Option<mobile::MobileInfo>,
+}
+impl DetectedDevice {
+    fn ecid(&self) -> Option<u64> {
+        self.irecv
+            .as_ref()
+            .and_then(|i| i.ecid)
+            .or_else(|| self.mobile.as_ref().and_then(|i| i.ecid))
+            .or(self.device.ecid)
+    }
+    fn label(&self) -> String {
+        format!(
+            "{} · {} · {}",
+            self.entry
+                .as_ref()
+                .map(|e| e.name.as_str())
+                .unwrap_or(&self.device.product),
+            self.device.mode_label(),
+            self.ecid()
+                .map(|e| format!("ECID {e:x}"))
+                .unwrap_or_else(|| self.device.sysfs_path.clone())
+        )
+    }
+}
+
 struct Inner {
+    devices: Vec<DetectedDevice>,
+    selected_key: String,
+    queue: Vec<queue::QueueItem>,
     device: Option<UsbDevice>,
     irecv: Option<irecovery::IRecoveryInfo>,
     entry: Option<DeviceEntry>,
@@ -77,6 +116,7 @@ pub struct Manager {
     firmware_cache: Mutex<HashMap<String, Vec<Firmware>>>,
     job_cancel: AtomicBool,
     job_running: AtomicBool,
+    batch_running: AtomicBool,
     stop: AtomicBool,
 }
 
@@ -85,6 +125,9 @@ impl Manager {
         Arc::new(Manager {
             usb_access: Mutex::new(()),
             inner: Mutex::new(Inner {
+                devices: Vec::new(),
+                selected_key: String::new(),
+                queue: Vec::new(),
                 device: None,
                 irecv: None,
                 entry: None,
@@ -95,6 +138,7 @@ impl Manager {
             firmware_cache: Mutex::new(HashMap::new()),
             job_cancel: AtomicBool::new(false),
             job_running: AtomicBool::new(false),
+            batch_running: AtomicBool::new(false),
             stop: AtomicBool::new(false),
         })
     }
@@ -137,8 +181,8 @@ impl Manager {
             return;
         }
 
-        let devices = usb::scan();
-        let device = devices.into_iter().min_by_key(|d| {
+        let mut usb_devices = usb::scan();
+        usb_devices.sort_by_key(|d| {
             if d.is_restorable() {
                 0
             } else if d.mode == "normal" {
@@ -147,44 +191,121 @@ impl Manager {
                 2
             }
         });
-
-        let irecv = match &device {
-            Some(d) if d.is_restorable() => irecovery::query(d.ecid),
-            _ => None,
-        };
-
-        let normal_info = device
-            .as_ref()
-            .filter(|d| d.mode == "normal")
-            .and_then(|d| mobile::query(&d.serial));
-        let entry = if let Some(info) = &normal_info {
-            self.db
-                .read()
-                .ok()
-                .and_then(|db| {
-                    db.as_ref()
-                        .and_then(|db| db.lookup(&info.identifier).cloned())
-                })
-                .or_else(|| {
-                    Some(DeviceEntry {
-                        identifier: info.identifier.clone(),
-                        name: info.identifier.clone(),
-                        boardconfig: info.board.clone(),
+        let recovery_count = usb_devices.iter().filter(|d| d.is_restorable()).count();
+        let mut devices = Vec::new();
+        for device in usb_devices {
+            // Never issue an unaddressed query when more than one restore device exists.
+            let irecv = if device.is_restorable() && (device.ecid.is_some() || recovery_count == 1)
+            {
+                irecovery::query(device.ecid)
+            } else {
+                None
+            };
+            let normal_info = if device.mode == "normal" {
+                mobile::query(&device.serial)
+            } else {
+                None
+            };
+            let entry = if let Some(info) = &normal_info {
+                self.db
+                    .read()
+                    .ok()
+                    .and_then(|db| {
+                        db.as_ref()
+                            .and_then(|db| db.lookup(&info.identifier).cloned())
                     })
-                })
-        } else {
-            self.resolve_entry(&device, &irecv)
-        };
-        if let Some(entry) = &entry {
-            self.ensure_firmware(&entry.identifier);
+                    .or_else(|| {
+                        Some(DeviceEntry {
+                            identifier: info.identifier.clone(),
+                            name: info.identifier.clone(),
+                            boardconfig: info.board.clone(),
+                        })
+                    })
+            } else {
+                self.resolve_entry(&Some(device.clone()), &irecv)
+            };
+            let ecid = irecv
+                .as_ref()
+                .and_then(|i| i.ecid)
+                .or_else(|| normal_info.as_ref().and_then(|i| i.ecid))
+                .or(device.ecid);
+            let key = ecid.map(|e| format!("ecid:{e:x}")).unwrap_or_else(|| {
+                if device.serial.is_empty() {
+                    format!("port:{}", device.sysfs_path)
+                } else {
+                    format!("serial:{}", device.serial)
+                }
+            });
+            devices.push(DetectedDevice {
+                key,
+                device,
+                irecv,
+                entry,
+                mobile: normal_info,
+            });
         }
-
+        let identifiers: Vec<_> = devices
+            .iter()
+            .filter_map(|d| d.entry.as_ref().map(|e| e.identifier.clone()))
+            .collect();
         if let Ok(mut inner) = self.inner.lock() {
-            inner.device = device;
-            inner.irecv = irecv;
-            inner.entry = entry;
-            inner.mobile = normal_info;
+            Self::replace_devices(&mut inner, devices);
         }
+        drop(_usb);
+        // Publish detection before doing network requests.
+        for identifier in identifiers {
+            self.ensure_firmware(&identifier);
+        }
+    }
+
+    fn replace_devices(inner: &mut Inner, devices: Vec<DetectedDevice>) {
+        if inner.selected_key.is_empty() {
+            if let Some(first) = devices.first() {
+                inner.selected_key = first.key.clone();
+            }
+        } else if !devices.iter().any(|d| d.key == inner.selected_key) {
+            // A successful later query may enrich a serial identity with its ECID.
+            // Follow only the same non-empty serial, never a replacement on the same port.
+            let serial = inner
+                .device
+                .as_ref()
+                .map(|d| d.serial.as_str())
+                .or_else(|| inner.selected_key.strip_prefix("serial:"));
+            if let Some(serial) = serial.filter(|s| !s.is_empty()) {
+                if let Some(same) = devices.iter().find(|d| d.device.serial == serial) {
+                    inner.selected_key = same.key.clone();
+                }
+            }
+        }
+        inner.devices = devices;
+        Self::apply_selection(inner);
+    }
+
+    fn apply_selection(inner: &mut Inner) {
+        let selected = inner
+            .devices
+            .iter()
+            .find(|d| d.key == inner.selected_key)
+            .cloned();
+        inner.device = selected.as_ref().map(|d| d.device.clone());
+        inner.irecv = selected.as_ref().and_then(|d| d.irecv.clone());
+        inner.entry = selected.as_ref().and_then(|d| d.entry.clone());
+        inner.mobile = selected.and_then(|d| d.mobile);
+    }
+
+    pub fn select_device(&self, key: &str) -> bool {
+        if self.job_running.load(Ordering::SeqCst) {
+            return false;
+        }
+        let Ok(mut inner) = self.inner.lock() else {
+            return false;
+        };
+        if !inner.devices.iter().any(|d| d.key == key) {
+            return false;
+        }
+        inner.selected_key = key.into();
+        Self::apply_selection(&mut inner);
+        true
     }
 
     fn resolve_entry(
@@ -226,7 +347,7 @@ impl Manager {
 
     // -- reading ---------------------------------------------------------
     pub fn snapshot(&self) -> Snapshot {
-        let (device, irecv, entry, normal_info, job) = {
+        let (device, irecv, entry, normal_info, job, devices, selected_key, queued) = {
             let inner = match self.inner.lock() {
                 Ok(i) => i,
                 Err(_) => return Snapshot::default(),
@@ -237,10 +358,21 @@ impl Manager {
                 inner.entry.clone(),
                 inner.mobile.clone(),
                 inner.job.clone(),
+                inner
+                    .devices
+                    .iter()
+                    .map(|d| (d.key.clone(), d.label()))
+                    .collect(),
+                inner.selected_key.clone(),
+                inner.queue.clone(),
             )
         };
 
         let mut snap = Snapshot {
+            devices,
+            selected_key,
+            queue: queued,
+            busy: self.job_running.load(Ordering::SeqCst),
             job,
             tools: self.tools_snapshot(),
             ..Snapshot::default()
@@ -306,7 +438,12 @@ impl Manager {
             },
             Err(_) => return Vec::new(),
         };
-        let mut list = self.firmwares_for(&identifier);
+        let mut list = self
+            .firmware_cache
+            .lock()
+            .ok()
+            .and_then(|c| c.get(&identifier).cloned())
+            .unwrap_or_default();
         list.sort_by(|a, b| (b.signed, b.version.clone()).cmp(&(a.signed, a.version.clone())));
         list
     }
@@ -359,26 +496,171 @@ impl Manager {
         true
     }
 
-    pub fn start_restore(
-        self: &Arc<Self>,
+    pub fn prepare_restore(
+        &self,
+        key: &str,
+        fw: &Firmware,
         erase: bool,
-        ipsw_path: &str,
-        identifier: &str,
-        version: &str,
-        buildid: &str,
-        ignore_errors: bool,
-    ) -> bool {
-        if identifier.is_empty() || !self.begin_job("restore") {
+    ) -> Result<queue::RestoreRequest, String> {
+        let inner = self.inner.lock().map_err(|_| "Device state unavailable")?;
+        let device = inner
+            .devices
+            .iter()
+            .find(|d| d.key == key)
+            .ok_or("Selected device disconnected")?;
+        if !device.device.is_restorable() {
+            return Err("Put this device into DFU or Recovery Mode first".into());
+        }
+        let ecid = device
+            .ecid()
+            .filter(|e| *e != 0)
+            .ok_or("Device ECID unavailable; restore cannot be safely targeted")?;
+        if device.entry.as_ref().map(|e| e.identifier.as_str()) != Some(fw.identifier.as_str()) {
+            return Err("Firmware does not match the selected device".into());
+        }
+        Ok(queue::RestoreRequest {
+            key: device.key.clone(),
+            name: device.entry.as_ref().unwrap().name.clone(),
+            ecid,
+            identifier: fw.identifier.clone(),
+            version: fw.version.clone(),
+            buildid: fw.buildid.clone(),
+            erase,
+        })
+    }
+
+    pub fn add_to_queue(&self, request: queue::RestoreRequest) -> Result<(), String> {
+        if self.job_running.load(Ordering::SeqCst) {
+            return Err("Wait for the current operation".into());
+        }
+        let mut inner = self.inner.lock().map_err(|_| "Queue unavailable")?;
+        if inner
+            .queue
+            .iter()
+            .any(|item| item.request.ecid == request.ecid)
+        {
+            return Err(
+                "This device is already queued. Remove its entry to change firmware or mode."
+                    .into(),
+            );
+        }
+        inner.queue.push(queue::QueueItem {
+            request,
+            status: "Queued".into(),
+        });
+        Ok(())
+    }
+
+    pub fn remove_from_queue(&self, key: &str) {
+        if self.job_running.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.queue.retain(|i| i.request.key != key);
+        }
+    }
+    pub fn clear_queue(&self) {
+        if self.job_running.load(Ordering::SeqCst) {
+            return;
+        }
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.queue.clear();
+        }
+    }
+    pub fn pending_requests(&self) -> Vec<queue::RestoreRequest> {
+        self.inner
+            .lock()
+            .map(|inner| {
+                inner
+                    .queue
+                    .iter()
+                    .filter(|i| i.status == "Queued")
+                    .map(|i| i.request.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+    pub fn report_error(&self, error: &str) {
+        self.log_line(error);
+    }
+
+    pub fn start_requests(self: &Arc<Self>, requests: Vec<queue::RestoreRequest>) -> bool {
+        let unique: std::collections::HashSet<_> = requests.iter().map(|r| r.ecid).collect();
+        if requests.is_empty()
+            || unique.len() != requests.len()
+            || requests.iter().any(|r| r.ecid == 0)
+            || !self.begin_job("restore")
+        {
             return false;
         }
+        self.batch_running.store(true, Ordering::SeqCst);
         let me = Arc::clone(self);
-        let (id, ver, bid, path) = (
-            identifier.to_string(),
-            version.to_string(),
-            buildid.to_string(),
-            ipsw_path.to_string(),
-        );
-        thread::spawn(move || me.run_restore(erase, &path, &id, &ver, &bid, ignore_errors));
+        thread::spawn(move || {
+            let mut failed = 0;
+            queue::execute(
+                &requests,
+                &me.job_cancel,
+                |request| {
+                    me.update_job(|job| {
+                        job.status = "running".into();
+                        job.target = format!("{} · ECID {:x}", request.name, request.ecid);
+                        job.progress = 0.0;
+                        job.message =
+                            format!("Restoring {} · ECID {:x}", request.name, request.ecid);
+                    });
+                    me.log_line(&format!("Target: {}", request.summary()));
+                    me.run_restore(
+                        request.erase,
+                        "",
+                        &request.identifier,
+                        &request.version,
+                        &request.buildid,
+                        false,
+                        request.ecid,
+                    );
+                    let job = me.inner.lock().unwrap().job.clone();
+                    if job.status == "done" {
+                        Ok(())
+                    } else {
+                        failed += 1;
+                        Err(job.message)
+                    }
+                },
+                |request, status| {
+                    if let Ok(mut inner) = me.inner.lock() {
+                        if let Some(item) = inner.queue.iter_mut().find(|i| {
+                            i.request.key == request.key
+                                && i.request.version == request.version
+                                && i.request.buildid == request.buildid
+                                && i.request.erase == request.erase
+                        }) {
+                            item.status = status.into();
+                        }
+                    }
+                    me.log_line(&format!("ECID {:x}: {}", request.ecid, status));
+                },
+            );
+            me.batch_running.store(false, Ordering::SeqCst);
+            if me.job_cancel.load(Ordering::Relaxed) {
+                me.finish_job(
+                    "cancelled",
+                    "Queue cancelled; remaining devices were skipped",
+                    None,
+                );
+            } else if failed > 0 {
+                me.finish_job(
+                    "error",
+                    &format!("Queue finished: {failed} device(s) failed. See queue results."),
+                    None,
+                );
+            } else {
+                me.finish_job(
+                    "done",
+                    &format!("Restore completed for {} device(s)", requests.len()),
+                    Some(1.0),
+                );
+            }
+        });
         true
     }
 
@@ -518,7 +800,9 @@ impl Manager {
                 inner.job.progress = p;
             }
         }
-        self.job_running.store(false, Ordering::SeqCst);
+        if !self.batch_running.load(Ordering::SeqCst) {
+            self.job_running.store(false, Ordering::SeqCst);
+        }
     }
 
     fn update_job<F: FnOnce(&mut JobSnapshot)>(&self, f: F) {
@@ -598,7 +882,19 @@ impl Manager {
         version: &str,
         buildid: &str,
         ignore_errors: bool,
+        ecid: u64,
     ) {
+        if !usb::scan()
+            .iter()
+            .any(|d| d.is_restorable() && d.ecid == Some(ecid))
+        {
+            self.finish_job(
+                "error",
+                "Target device disconnected or no longer in DFU/Recovery Mode",
+                None,
+            );
+            return;
+        }
         let fw = self.firmware_for(identifier, version, buildid);
         let path = if !ipsw_path.is_empty() && std::path::Path::new(ipsw_path).exists() {
             std::path::PathBuf::from(ipsw_path)
@@ -645,26 +941,23 @@ impl Manager {
             self.finish_job("cancelled", "Restore cancelled", None);
             return;
         }
-        let ecid = {
-            let inner = match self.inner.lock() {
-                Ok(i) => i,
-                Err(_) => return,
-            };
-            inner
-                .irecv
-                .as_ref()
-                .and_then(|i| i.ecid)
-                .or_else(|| inner.device.as_ref().and_then(|d| d.ecid))
-        };
+        // Revalidate after downloads. Never fall back to the first connected device.
+        if !usb::scan()
+            .iter()
+            .any(|d| d.is_restorable() && d.ecid == Some(ecid))
+        {
+            self.finish_job("error", "Target device disconnected before restore", None);
+            return;
+        }
 
         let options = restore::RestoreOptions {
             ipsw_path: path.to_string_lossy().to_string(),
             erase,
-            ecid,
+            ecid: Some(ecid),
             ignore_errors,
             variant: String::new(),
             cache_path: Some(config::cache_dir()),
-            logfile: Some(config::log_dir().join("restore.log")),
+            logfile: Some(config::log_dir().join(format!("restore-{ecid:x}.log"))),
         };
 
         self.update_job(|job| {
@@ -720,5 +1013,157 @@ impl Manager {
             }
             Err(e) => self.finish_job("error", &format!("Restore error: {}", e), None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn detected(ecid: u64, mode: &str, id: &str) -> DetectedDevice {
+        DetectedDevice {
+            key: format!("ecid:{ecid:x}"),
+            device: UsbDevice {
+                vendor_id: 0x05ac,
+                product_id: 0x1227,
+                product: "Test device".into(),
+                manufacturer: "Apple".into(),
+                serial: format!("ECID:{ecid:x}"),
+                busnum: Some(1),
+                devnum: Some(1),
+                sysfs_path: format!("/test/{ecid}"),
+                mode: mode.into(),
+                cpid: None,
+                bdid: None,
+                ecid: Some(ecid),
+                srtg: String::new(),
+            },
+            irecv: None,
+            mobile: None,
+            entry: Some(DeviceEntry {
+                identifier: id.into(),
+                name: id.into(),
+                boardconfig: "Test".into(),
+            }),
+        }
+    }
+    fn firmware(id: &str) -> Firmware {
+        Firmware {
+            identifier: id.into(),
+            version: "test".into(),
+            buildid: "test".into(),
+            url: String::new(),
+            sha256: String::new(),
+            sha1: String::new(),
+            signed: true,
+            releasedate: String::new(),
+            filesize: 1,
+            filesize_human: "1B".into(),
+        }
+    }
+    #[test]
+    fn explicit_selection_and_disconnect_never_select_another_device() {
+        let me = Manager::new();
+        {
+            let mut inner = me.inner.lock().unwrap();
+            inner.devices = vec![
+                detected(11, "dfu", "iPhone15,2"),
+                detected(22, "recovery", "iPad13,1"),
+            ];
+        }
+        assert!(me.select_device("ecid:b"));
+        assert_eq!(me.snapshot().ecid, Some(11));
+        {
+            let mut inner = me.inner.lock().unwrap();
+            inner.devices.retain(|d| d.ecid() != Some(11));
+            Manager::apply_selection(&mut inner);
+        }
+        let snapshot = me.snapshot();
+        assert!(!snapshot.connected);
+        assert_eq!(snapshot.selected_key, "ecid:b");
+        assert_eq!(snapshot.devices.len(), 1);
+        assert!(me.select_device("ecid:16"));
+        assert_eq!(me.snapshot().ecid, Some(22));
+    }
+    #[test]
+    fn follows_identity_enrichment_but_not_same_port_replacements() {
+        let me = Manager::new();
+        let mut unqueried = detected(11, "normal", "iPhone15,2");
+        unqueried.key = "serial:phone-A".into();
+        unqueried.device.serial = "phone-A".into();
+        let mut queried = unqueried.clone();
+        queried.key = "ecid:b".into();
+        {
+            let mut inner = me.inner.lock().unwrap();
+            Manager::replace_devices(&mut inner, vec![unqueried]);
+            Manager::replace_devices(&mut inner, vec![queried]);
+        }
+        assert_eq!(me.snapshot().selected_key, "ecid:b");
+        let mut replacement = detected(22, "normal", "iPhone15,2");
+        replacement.device.sysfs_path = "/test/11".into();
+        {
+            let mut inner = me.inner.lock().unwrap();
+            Manager::replace_devices(&mut inner, vec![replacement]);
+        }
+        assert!(!me.snapshot().connected);
+        assert_eq!(me.snapshot().selected_key, "ecid:b");
+    }
+
+    #[test]
+    fn plan_rejects_wrong_firmware_normal_mode_and_missing_ecid() {
+        let me = Manager::new();
+        {
+            let mut inner = me.inner.lock().unwrap();
+            inner.devices = vec![
+                detected(11, "dfu", "iPhone15,2"),
+                detected(22, "normal", "iPad13,1"),
+                detected(0, "dfu", "iPhone15,2"),
+            ];
+        }
+        assert!(me
+            .prepare_restore("ecid:b", &firmware("iPad13,1"), true)
+            .is_err());
+        assert!(me
+            .prepare_restore("ecid:16", &firmware("iPad13,1"), true)
+            .is_err());
+        assert!(me
+            .prepare_restore("ecid:0", &firmware("iPhone15,2"), true)
+            .is_err());
+        let request = me
+            .prepare_restore("ecid:b", &firmware("iPhone15,2"), true)
+            .unwrap();
+        assert_eq!(request.ecid, 11);
+        me.add_to_queue(request.clone()).unwrap();
+        assert!(me.add_to_queue(request.clone()).is_err());
+        // An already confirmed plan remains bound to its original device.
+        assert!(me.select_device("ecid:16"));
+        assert_eq!(request.ecid, 11);
+        assert_eq!(me.pending_requests()[0].ecid, 11);
+        me.remove_from_queue("ecid:b");
+        assert!(me.pending_requests().is_empty());
+    }
+    #[test]
+    fn busy_state_survives_each_batch_item_and_blocks_queue_edits() {
+        let me = Manager::new();
+        let request = queue::RestoreRequest {
+            key: "ecid:b".into(),
+            name: "Test".into(),
+            ecid: 11,
+            identifier: "iPhone15,2".into(),
+            version: "test".into(),
+            buildid: "test".into(),
+            erase: true,
+        };
+        me.add_to_queue(request.clone()).unwrap();
+        assert!(me.begin_job("restore"));
+        me.batch_running.store(true, Ordering::SeqCst);
+        me.finish_job("done", "First complete", None);
+        assert!(me.snapshot().busy);
+        assert!(!me.select_device("ecid:b"));
+        assert!(me.add_to_queue(request).is_err());
+        me.clear_queue();
+        assert_eq!(me.pending_requests().len(), 1);
+        me.batch_running.store(false, Ordering::SeqCst);
+        me.finish_job("done", "Queue complete", None);
+        assert!(!me.snapshot().busy);
     }
 }
