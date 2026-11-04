@@ -101,6 +101,9 @@ LD_LIBRARY_PATH="$APPDIR/usr/lib" "$LD" --appdir "$APPDIR" \
 
 chmod +x "$APPDIR/AppRun" 2>/dev/null || true
 
+# Copied toolchains can carry owner-only directory modes from prior extraction.
+chmod -R a+rX "$APPDIR"
+
 echo "==> packaging AppImage"
 "$AT" "$APPDIR" "$OUT/PEAR-Configurator-$ARCH.AppImage"
 
