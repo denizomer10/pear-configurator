@@ -51,7 +51,7 @@ On the first launch the app checks whether its USB access rule is installed. If
 it is missing, a setup window asks for administrator permission (the system
 password dialog), installs the rule for the running distribution (Arch, Debian,
 Fedora, …), reloads udev and closes automatically. The rule is written to
-`/etc/udev/rules.d/99-pear-apple.rules`. After that the app is ready to use — no
+`/etc/udev/rules.d/70-pear-apple.rules`. After that the app is ready to use — no
 manual udev or libimobiledevice setup is needed.
 
 ## Building from source (developers)
@@ -137,3 +137,18 @@ cargo test
 ## License
 
 **MIT** — see [LICENSE](LICENSE).
+
+## USB access troubleshooting
+
+If a device appears in DFU but restore reports that it cannot discover its mode,
+restart the updated app and complete USB access setup. Older releases installed
+`99-pear-apple.rules`, which ran too late for systemd's seat ACLs. The updated
+app installs `70-pear-apple.rules` before `73-seat-late.rules`. Reconnect the USB
+cable if access is still denied after installation. Detection via sysfs alone
+does not prove that the restore tool can open the USB device.
+
+Device queries pause during restore to avoid competing for the USB interface.
+Both stdout and stderr are shown in Activity, including USB access errors.
+
+For a hardware-free UI preview, run `cargo run --example preview`. This writes
+PPM screenshots at the default and compact window sizes to `/tmp/pear-preview-*.ppm`.

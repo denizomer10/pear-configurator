@@ -7,7 +7,7 @@
 //! askpass helper, or `sudo` inside a terminal emulator).
 //!
 //! The rule itself is embedded at compile time from
-//! `scripts/99-pear-apple.rules`, so the AppImage does not need any external
+//! `scripts/70-pear-apple.rules`, so the AppImage does not need any external
 //! files.
 
 use std::fs;
@@ -16,8 +16,8 @@ use std::process::{Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub const RULE_FILE_NAME: &str = "99-pear-apple.rules";
-pub const RULE_CONTENT: &str = include_str!("../scripts/99-pear-apple.rules");
+pub const RULE_FILE_NAME: &str = "70-pear-apple.rules";
+pub const RULE_CONTENT: &str = include_str!("../scripts/70-pear-apple.rules");
 
 /// Absolute path of the installed udev rule.
 pub fn rule_path() -> PathBuf {
@@ -26,6 +26,8 @@ pub fn rule_path() -> PathBuf {
 
 /// Returns `true` when our cross-distro rule is already installed.
 ///
+/// The old 99-prefixed rule ran after systemd applied ACLs and is deliberately
+/// not accepted. The 70-prefixed rule is installed on the next launch.
 /// An old rule that only used `GROUP="plugdev"` is treated as missing, because
 /// that group does not exist on Arch or Fedora. Re-installing replaces it with
 /// the `uaccess` version.
@@ -139,8 +141,10 @@ fn run_privileged(script: &Path) -> Result<(), String> {
         return run_sudo(script);
     }
 
-    Err("Neither pkexec nor sudo was found. Install polkit (pkexec) or sudo and try again."
-        .to_string())
+    Err(
+        "Neither pkexec nor sudo was found. Install polkit (pkexec) or sudo and try again."
+            .to_string(),
+    )
 }
 
 fn run_sh(script: &Path, pause: bool) -> Result<(), String> {
@@ -295,10 +299,15 @@ mod tests {
     }
 
     #[test]
+    fn rule_precedes_seat_acl_application() {
+        assert!(RULE_FILE_NAME < "73-seat-late.rules");
+    }
+
+    #[test]
     fn rule_path_is_standard() {
         assert_eq!(
             rule_path(),
-            PathBuf::from("/etc/udev/rules.d/99-pear-apple.rules")
+            PathBuf::from("/etc/udev/rules.d/70-pear-apple.rules")
         );
     }
 

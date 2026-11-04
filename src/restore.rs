@@ -12,6 +12,9 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config;
@@ -198,12 +201,19 @@ pub fn run(
     on_event: &dyn Fn(RestoreEvent),
     cancel: &AtomicBool,
 ) -> Result<i32, String> {
-    let tool = find_idevicerestore().ok_or_else(|| {
-        "idevicerestore not found. Run scripts/install-toolchain.sh.".to_string()
-    })?;
+    let tool = find_idevicerestore()
+        .ok_or_else(|| "idevicerestore not found. Run scripts/install-toolchain.sh.".to_string())?;
     let argv = build_command(&tool, options);
     on_event(RestoreEvent::Command(argv.join(" ")));
 
+    run_process(&argv, on_event, cancel)
+}
+
+fn run_process(
+    argv: &[String],
+    on_event: &dyn Fn(RestoreEvent),
+    cancel: &AtomicBool,
+) -> Result<i32, String> {
     let mut command = Command::new(&argv[0]);
     command.args(&argv[1..]);
     command.stdout(Stdio::piped());
@@ -221,23 +231,50 @@ pub fn run(
         .spawn()
         .map_err(|e| format!("Failed to start idevicerestore: {}", e))?;
 
-    if let Some(stdout) = child.stdout.take() {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            if cancel.load(Ordering::Relaxed) {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(CANCELLED.to_string());
-            }
-            match line {
-                Ok(text) => {
-                    if let Some(event) = parse_progress_line(&text) {
-                        on_event(event);
+    // Drain both pipes concurrently: stderr can otherwise fill and block the tool.
+    // Poll independently of output so cancellation also works during USB waits.
+    let (tx, rx) = mpsc::channel();
+    let mut readers = Vec::new();
+    for stream in [
+        Box::new(child.stdout.take().unwrap()) as Box<dyn std::io::Read + Send>,
+        Box::new(child.stderr.take().unwrap()) as Box<dyn std::io::Read + Send>,
+    ] {
+        let tx = tx.clone();
+        readers.push(thread::spawn(move || {
+            for line in BufReader::new(stream).lines() {
+                match line {
+                    Ok(line) => {
+                        if tx.send(line).is_err() {
+                            break;
+                        }
                     }
+                    Err(_) => break,
                 }
-                Err(_) => break,
             }
+        }));
+    }
+    drop(tx);
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            let _ = child.kill();
+            let _ = child.wait();
+            for reader in readers {
+                let _ = reader.join();
+            }
+            return Err(CANCELLED.to_string());
         }
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(line) => {
+                if let Some(event) = parse_progress_line(&line) {
+                    on_event(event);
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    for reader in readers {
+        let _ = reader.join();
     }
 
     let status = child
@@ -267,6 +304,45 @@ mod tests {
             cache_path: None,
             logfile: None,
         }
+    }
+
+    #[test]
+    fn drains_stderr_and_stdout_without_deadlock() {
+        let argv = vec!["/bin/sh".into(), "-c".into(),
+            "i=0; while [ $i -lt 12000 ]; do echo 'USB diagnostic' >&2; i=$((i+1)); done; echo 'progress: 2 0.5'; exit 1".into()];
+        let events = std::sync::Mutex::new(Vec::new());
+        let result = run_process(
+            &argv,
+            &|event| events.lock().unwrap().push(event),
+            &AtomicBool::new(false),
+        );
+        assert_eq!(result.unwrap(), 1);
+        let events = events.lock().unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| matches!(e, RestoreEvent::Log(s) if s == "USB diagnostic"))
+                .count(),
+            12000
+        );
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, RestoreEvent::Progress { .. })));
+    }
+
+    #[test]
+    fn cancellation_works_without_process_output() {
+        let argv = vec!["/bin/sh".into(), "-c".into(), "exec sleep 10".into()];
+        let cancel = AtomicBool::new(false);
+        thread::scope(|scope| {
+            scope.spawn(|| {
+                thread::sleep(Duration::from_millis(150));
+                cancel.store(true, Ordering::Relaxed);
+            });
+            let start = std::time::Instant::now();
+            assert_eq!(run_process(&argv, &|_| {}, &cancel).unwrap_err(), CANCELLED);
+            assert!(start.elapsed() < Duration::from_secs(3));
+        });
     }
 
     #[test]

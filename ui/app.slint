@@ -3,13 +3,13 @@ import { ComboBox, ScrollView } from "std-widgets.slint";
 // Small status pill (tool / info badges).
 component Pill inherits Rectangle {
     in property <string> label;
-    in property <color> dot-color: #616a8c;
+    in property <color> dot-color: #849593;
 
     height: 26px;
     border-radius: 13px;
-    background: #ffffff08;
+    background: #18332b;
     border-width: 1px;
-    border-color: #788cdc24;
+    border-color: #334842;
 
     HorizontalLayout {
         alignment: center;
@@ -19,13 +19,19 @@ component Pill inherits Rectangle {
 
         Rectangle {
             width: 8px;
-            height: 8px;
-            border-radius: 4px;
-            background: root.dot-color;
+            height: 26px;
+            background: transparent;
+            Rectangle {
+                y: 9px;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: root.dot-color;
+            }
         }
         Text {
             text: root.label;
-            color: #9aa3c4;
+            color: #a8b9b5;
             font-size: 12px;
             vertical-alignment: center;
         }
@@ -36,13 +42,15 @@ component Pill inherits Rectangle {
 component ActionButton inherits Rectangle {
     in property <string> title;
     in property <string> subtitle;
-    in property <brush> base-color: #ffffff10;
+    in property <brush> base-color: #253833;
     in property <bool> active: true;
     callback clicked();
 
     height: 62px;
     border-radius: 14px;
-    background: root.active ? root.base-color : #ffffff0a;
+    background: root.active ? (touch.has-hover ? #34584a : root.base-color) : #ffffff0a;
+    border-width: 1px;
+    border-color: #ffffff14;
     opacity: root.active ? 1.0 : 0.4;
     animate opacity { duration: 150ms; }
 
@@ -68,7 +76,8 @@ component ActionButton inherits Rectangle {
         }
     }
 
-    TouchArea {
+    touch := TouchArea {
+        enabled: root.active;
         mouse-cursor: pointer;
         clicked => { if (root.active) { root.clicked(); } }
     }
@@ -76,11 +85,12 @@ component ActionButton inherits Rectangle {
 
 export component AppWindow inherits Window {
     title: "PEAR Configurator";
-    width: 1060px;
-    height: 780px;
-    background: #0b0d17;
+    preferred-width: 1140px;
+    preferred-height: 840px;
+    min-width: 980px;
+    min-height: 780px;
+    background: #0d1513;
     default-font-size: 13px;
-
     // Device
     in-out property <bool> device-connected: false;
     in-out property <string> device-name: "Waiting for device…";
@@ -128,230 +138,127 @@ export component AppWindow inherits Window {
     callback setup-install();
     callback setup-quit();
 
-    VerticalLayout {
-        padding: 22px;
-        spacing: 18px;
 
-        // ---- Header ----
-        HorizontalLayout {
-            spacing: 14px;
-            Rectangle {
-                width: 50px;
-                height: 50px;
-                border-radius: 15px;
-                background: @linear-gradient(135deg, #6d8bff, #9b6dff);
-                Text {
-                    text: "PEAR";
-                    color: #ffffff;
-                    font-size: 13px;
-                    font-weight: 800;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-            }
+    HorizontalLayout {
+        padding: 24px;
+        spacing: 24px;
+        Rectangle {
+            width: 244px;
+            border-radius: 20px;
+            background: #15201c;
+            border-width: 1px;
+            border-color: #293b33;
             VerticalLayout {
-                alignment: center;
-                spacing: 2px;
-                Text { text: "PEAR Configurator"; color: #e9ecf8; font-size: 21px; font-weight: 700; }
-                Text { text: "Apple device restore center"; color: #9aa3c4; font-size: 12px; }
-            }
-            Rectangle { horizontal-stretch: 1; }
-            HorizontalLayout {
-                spacing: 8px;
-                alignment: center;
-                Pill { label: root.tools-summary; dot-color: root.tools-ready ? #35d49a : #ff4d6d; }
+                padding: 20px;
+                spacing: 12px;
+                Text { text: "◒  PEAR"; color: #d7f9a5; font-size: 27px; font-weight: 800; }
+                Text { text: "CONFIGURATOR"; color: #8fa49a; font-size: 10px; letter-spacing: 2px; }
+                Rectangle { height: 1px; background: #293b33; }
+                Pill { label: root.device-connected ? "Device connected" : "Waiting for device"; dot-color: root.device-connected ? #d7f9a5 : #8fa49a; }
+                Text { text: "01 / CONNECT"; color: #d7f9a5; font-size: 11px; font-weight: 600; }
+                Rectangle {
+                    height: 104px;
+                    border-radius: 14px;
+                    background: #203229;
+                    Rectangle { x: (parent.width - 64px) / 2; y: 22px; width: 64px; height: 43px; border-radius: 6px; border-width: 2px; border-color: #d7f9a5; }
+                    Rectangle { x: (parent.width - 24px) / 2; y: 72px; width: 24px; height: 4px; border-radius: 2px; background: #d7f9a5; }
+                }
+                Text { text: root.device-connected ? root.device-name : "Connect your device"; color: #f0f5ed; font-size: 20px; font-weight: 600; wrap: word-wrap; }
+                Pill { label: root.device-connected ? root.mode-label : "USB connection required"; dot-color: root.mode-color; }
+                for spec in root.specs: Text { text: spec; color: #9eb2a6; font-size: 11px; wrap: word-wrap; }
+                Rectangle { vertical-stretch: 1; }
+                Text { text: "Before you begin"; color: #edf3e9; font-size: 13px; font-weight: 600; }
+                Text { text: "Use a reliable USB cable. Keep the device connected throughout the restore."; color: #8fa49a; font-size: 12px; wrap: word-wrap; }
+                Rectangle { height: 1px; background: #293b33; }
+                Text { text: root.tools-ready ? "●  Restore tools available" : "●  Restore tools missing"; color: root.tools-ready ? #d7f9a5 : #ffad93; font-size: 11px; }
             }
         }
-
-        // ---- Middle: device + restore ----
-        HorizontalLayout {
+        VerticalLayout {
             spacing: 18px;
-
-            // Device panel
-            Rectangle {
-                width: 46%;
-                height: 330px;
-                border-radius: 18px;
-                background: #141828cc;
-                border-width: 1px;
-                border-color: #788cdc20;
-
+            HorizontalLayout {
                 VerticalLayout {
-                    padding: 20px;
-                    spacing: 16px;
-
-                    Text { text: "CONNECTED DEVICE"; color: #9aa3c4; font-size: 12px; font-weight: 600; }
-
-                    if !root.device-connected: Text {
-                        text: "Waiting for device…\nPut it into DFU or recovery mode";
-                        color: #616a8c;
-                        font-size: 14px;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                        vertical-stretch: 1;
-                        wrap: word-wrap;
-                    }
-
-                    if root.device-connected: VerticalLayout {
-                        spacing: 16px;
-
-                        HorizontalLayout {
-                            spacing: 14px;
-
-                            // Simple device icon
-                            Rectangle {
-                                width: 56px;
-                                height: 56px;
-                                border-radius: 15px;
-                                background: #ffffff0d;
-                                Rectangle { x: 14px; y: 15px; width: 28px; height: 20px; border-radius: 3px; border-width: 2px; border-color: #8fa0e0; }
-                                Rectangle { x: 23px; y: 36px; width: 10px; height: 4px; border-radius: 2px; background: #8fa0e0; }
-                            }
-
-                            VerticalLayout {
-                                alignment: center;
-                                spacing: 7px;
-                                Text { text: root.device-name; color: #e9ecf8; font-size: 17px; font-weight: 600; }
-                                Rectangle {
-                                    border-radius: 11px;
-                                    background: root.mode-color;
-                                    HorizontalLayout {
-                                        padding-left: 11px;
-                                        padding-right: 11px;
-                                        padding-top: 4px;
-                                        padding-bottom: 4px;
-                                        Text { text: root.mode-label; color: #ffffff; font-size: 11px; font-weight: 600; }
-                                    }
-                                }
-                            }
-                            Rectangle { horizontal-stretch: 1; }
-                        }
-
-                        for spec in root.specs: Text {
-                            text: spec;
-                            color: #b7c0e0;
-                            font-size: 12px;
-                            font-family: "monospace";
-                        }
-                    }
+                    spacing: 6px;
+                    Text { text: "DEVICE RECOVERY"; color: #9bae9e; font-size: 10px; letter-spacing: 2px; }
+                    Text { text: "A fresh start."; color: #f0f5ed; font-size: 34px; font-weight: 700; }
+                    Text { text: "Restore your Apple device, one step at a time."; color: #91a598; font-size: 13px; }
                 }
+                Rectangle { horizontal-stretch: 1; }
+                Pill { width: 180px; label: root.job-running ? "In progress" : "Restore workspace"; dot-color: #d7f9a5; }
             }
-
-            // Restore panel
             Rectangle {
-                horizontal-stretch: 1;
-                height: 330px;
-                border-radius: 18px;
-                background: #141828cc;
+                height: 280px;
+                border-radius: 20px;
+                background: #18231e;
                 border-width: 1px;
-                border-color: #788cdc20;
-
+                border-color: #304035;
                 VerticalLayout {
-                    padding: 20px;
-                    spacing: 12px;
-
-                    Text { text: "RESTORE"; color: #9aa3c4; font-size: 12px; font-weight: 600; }
-                    Text { text: "Version (IPSW)"; color: #9aa3c4; font-size: 12px; }
+                    padding: 24px;
+                    spacing: 14px;
+                    Text { text: "02 / CHOOSE FIRMWARE"; color: #d7f9a5; font-size: 11px; font-weight: 600; }
+                    Text { text: "Choose your next version"; color: #edf3e9; font-size: 21px; font-weight: 600; }
                     ComboBox {
+                        enabled: !root.job-running && !root.confirm-visible;
                         model: root.firmware-model;
                         current-index <=> root.firmware-index;
                         selected(value) => { root.firmware-selected(root.firmware-index); }
                     }
-
+                    Text { text: root.device-connected ? "Select firmware, then choose how to restore your device." : "Connect a device in DFU or recovery mode to load firmware."; color: #91a598; font-size: 12px; wrap: word-wrap; }
                     HorizontalLayout {
                         spacing: 12px;
-                        ActionButton {
-                            horizontal-stretch: 1;
-                            title: "Erase & Install";
-                            subtitle: "All data will be erased";
-                            base-color: @linear-gradient(135deg, #ff4d6d, #ff8a5c);
-                            active: root.can-restore;
-                            clicked => { root.erase-clicked(); }
-                        }
-                        ActionButton {
-                            horizontal-stretch: 1;
-                            title: "Keep Data";
-                            subtitle: "Update (revive)";
-                            base-color: @linear-gradient(135deg, #3a4bb0, #5a3ab0);
-                            active: root.can-restore;
-                            clicked => { root.update-clicked(); }
-                        }
-                    }
-
-                    Rectangle { height: 6px; }
-
-                    Rectangle {
-                        height: 10px;
-                        border-radius: 5px;
-                        background: #05070e;
-                        border-width: 1px;
-                        border-color: #788cdc20;
-                        clip: true;
-                        Rectangle {
-                            width: parent.width * root.progress;
-                            height: parent.height;
-                            border-radius: 5px;
-                            background: @linear-gradient(90deg, #6d8bff, #9b6dff);
-                            animate width { duration: 300ms; }
-                        }
-                    }
-
-                    HorizontalLayout {
-                        Text { text: root.progress-label; color: #9aa3c4; font-size: 13px; horizontal-stretch: 1; }
-                        Text { text: root.progress-pct; color: #9aa3c4; font-size: 13px; font-weight: 600; }
-                    }
-                    Text { text: root.progress-detail; color: #616a8c; font-size: 11px; font-family: "monospace"; vertical-stretch: 1; }
-
-                    if root.job-running: ActionButton {
-                        width: 130px;
-                        height: 40px;
-                        title: "Cancel";
-                        subtitle: "";
-                        base-color: #ffffff12;
-                        clicked => { root.cancel-clicked(); }
+                        ActionButton { horizontal-stretch: 1; title: "Keep Data"; subtitle: "Attempt update / revive"; base-color: #345344; active: root.can-restore; clicked => { root.update-clicked(); } }
+                        ActionButton { horizontal-stretch: 1; title: "Erase & Install"; subtitle: "Permanently removes all data"; base-color: #794d3d; active: root.can-restore; clicked => { root.erase-clicked(); } }
                     }
                 }
             }
-        }
-
-        // ---- Log ----
-        Rectangle {
-            vertical-stretch: 1;
-            border-radius: 14px;
-            background: #05070e;
-            border-width: 1px;
-            border-color: #788cdc20;
-            clip: true;
-
-            VerticalLayout {
-                padding-top: 10px;
-                padding-bottom: 10px;
-                spacing: 4px;
-                HorizontalLayout {
-                    padding-left: 14px;
-                    padding-right: 14px;
-                    Text { text: "LOG"; color: #9aa3c4; font-size: 11px; font-weight: 600; horizontal-stretch: 1; }
-                    Text { text: "clear"; color: #616a8c; font-size: 11px; }
-                    TouchArea { mouse-cursor: pointer; clicked => { root.clear-log(); } }
-                }
-                ScrollView {
-                    VerticalLayout {
-                        padding-left: 14px;
-                        padding-right: 14px;
-                        spacing: 3px;
-                        for line in root.log-lines: Text {
-                            text: line;
-                            color: #b7c0e0;
-                            font-size: 12px;
-                            font-family: "monospace";
-                            wrap: no-wrap;
+            Rectangle {
+                height: 150px;
+                border-radius: 20px;
+                background: #d7f9a5;
+                VerticalLayout {
+                    padding: 22px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        Text { text: "03 / RESTORE STATUS"; color: #36512b; font-size: 11px; font-weight: 600; horizontal-stretch: 1; }
+                        Text { text: root.progress-pct; color: #18281a; font-size: 22px; font-weight: 700; }
+                    }
+                    Text { text: root.progress-label; color: #18281a; font-size: 15px; font-weight: 600; wrap: word-wrap; }
+                    Rectangle { height: 6px; background: #b4d28a; border-radius: 3px; clip: true;
+                        Rectangle { width: parent.width * root.progress; height: parent.height; background: #36512b; border-radius: 3px; animate width { duration: 200ms; } }
+                    }
+                    HorizontalLayout {
+                        Text { text: root.progress-detail; color: #36512b; font-size: 11px; overflow: elide; horizontal-stretch: 1; }
+                        if root.job-running: Rectangle { width: 82px; height: 22px; border-radius: 6px; background: #36512b;
+                            Text { text: "Cancel"; color: #ffffff; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { mouse-cursor: pointer; clicked => { root.cancel-clicked(); } }
                         }
                     }
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 16px;
+                background: #111b16;
+                border-width: 1px;
+                border-color: #293b33;
+                clip: true;
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 10px;
+                    HorizontalLayout {
+                        Text { text: "Activity"; color: #c5d3c7; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
+                        Rectangle { width: 64px; height: 24px; border-radius: 6px; background: #203229;
+                            Text { text: "Clear"; color: #a7baab; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { mouse-cursor: pointer; clicked => { root.clear-log(); } }
+                        }
+                    }
+                    if root.log-lines.length == 0: Text { text: "Your download and restore activity will appear here."; color: #7d9584; font-size: 12px; wrap: word-wrap; }
+                    ScrollView { VerticalLayout { alignment: start; spacing: 6px;
+                        for line in root.log-lines: Text { text: line; color: #a7baab; font-size: 11px; font-family: "monospace"; wrap: word-wrap; }
+                    } }
                 }
             }
         }
     }
-
     // ---- First-run setup dialog (udev rule) ----
     if root.setup-visible: Rectangle {
         x: 0;
@@ -359,6 +266,7 @@ export component AppWindow inherits Window {
         width: parent.width;
         height: parent.height;
         background: #04060ce8;
+        TouchArea {}
 
         Rectangle {
             width: 520px;
@@ -366,9 +274,9 @@ export component AppWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             border-radius: 18px;
-            background: #121523;
+            background: #18231e;
             border-width: 1px;
-            border-color: #788cdc24;
+            border-color: #3c5142;
 
             VerticalLayout {
                 padding: 26px;
@@ -376,13 +284,13 @@ export component AppWindow inherits Window {
 
                 Text {
                     text: root.setup-title;
-                    color: #e9ecf8;
+                    color: #edf3e9;
                     font-size: 19px;
                     font-weight: 700;
                 }
                 Text {
                     text: root.setup-message;
-                    color: #9aa3c4;
+                    color: #a8b9a9;
                     font-size: 13px;
                     wrap: word-wrap;
                     vertical-stretch: 1;
@@ -411,7 +319,7 @@ export component AppWindow inherits Window {
                         height: 44px;
                         title: root.setup-busy ? "Installing…" : (root.setup-done ? "Installed" : "Install");
                         subtitle: "";
-                        base-color: @linear-gradient(135deg, #6d8bff, #9b6dff);
+                        base-color: #345344;
                         active: !root.setup-busy && !root.setup-done;
                         clicked => { root.setup-install(); }
                     }
@@ -427,6 +335,7 @@ export component AppWindow inherits Window {
         width: parent.width;
         height: parent.height;
         background: #04060cc0;
+        TouchArea {}
 
         Rectangle {
             width: 460px;
@@ -434,17 +343,17 @@ export component AppWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             border-radius: 18px;
-            background: #121523;
+            background: #18231e;
             border-width: 1px;
-            border-color: #788cdc24;
+            border-color: #3c5142;
 
             VerticalLayout {
                 padding: 24px;
                 spacing: 14px;
-                Text { text: "Erase & Install"; color: #e9ecf8; font-size: 19px; font-weight: 700; }
+                Text { text: "Erase & Install"; color: #edf3e9; font-size: 19px; font-weight: 700; }
                 Text {
                     text: "All data on the device will be permanently erased and the selected version will be installed from scratch. This cannot be undone.";
-                    color: #9aa3c4;
+                    color: #a8b9a9;
                     font-size: 13px;
                     wrap: word-wrap;
                     vertical-stretch: 1;

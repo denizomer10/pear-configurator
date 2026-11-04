@@ -23,6 +23,11 @@ use crate::ipsw::Firmware;
 use crate::manager::{Manager, Snapshot};
 
 fn main() -> Result<(), slint::PlatformError> {
+    if std::env::args().any(|a| a == "--version") {
+        println!("PEAR Configurator {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     // Verify the data pipeline (detection + identity + firmware) without a GUI.
     if std::env::args().any(|a| a == "--selftest") {
         selftest();
@@ -124,7 +129,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let manager = manager.clone();
         let ui_weak = ui.as_weak();
         let mut last_sig: (String, usize) = (String::new(), usize::MAX);
-        let mut last_log_len: usize = usize::MAX;
+        let mut last_log: Vec<String> = Vec::new();
         let mut setup_done_at: Option<std::time::Instant> = None;
         timer.start(TimerMode::Repeated, Duration::from_millis(250), move || {
             let ui = match ui_weak.upgrade() {
@@ -143,8 +148,10 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             let sig = (identifier, list.len());
             if sig != last_sig {
-                let labels: Vec<SharedString> =
-                    list.iter().map(|f| SharedString::from(display_firmware(f))).collect();
+                let labels: Vec<SharedString> = list
+                    .iter()
+                    .map(|f| SharedString::from(display_firmware(f)))
+                    .collect();
                 ui.set_firmware_model(ModelRc::from(Rc::new(VecModel::from(labels))));
                 ui.set_firmware_index(0);
                 last_sig = sig;
@@ -172,8 +179,8 @@ fn main() -> Result<(), slint::PlatformError> {
             }
 
             // Log (newest first)
-            if snap.job.log.len() != last_log_len {
-                last_log_len = snap.job.log.len();
+            if snap.job.log != last_log {
+                last_log = snap.job.log.clone();
                 let lines: Vec<SharedString> = snap
                     .job
                     .log
@@ -322,12 +329,19 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
     ui.set_tools_summary(
         format!(
             "idevicerestore: {} · irecovery: {}",
-            if snap.tools.idevicerestore { "yes" } else { "no" },
+            if snap.tools.idevicerestore {
+                "yes"
+            } else {
+                "no"
+            },
             if snap.tools.irecovery { "yes" } else { "no" },
         )
         .into(),
     );
 
+    if !snap.connected {
+        ui.set_specs(ModelRc::from(Rc::new(VecModel::<SharedString>::default())));
+    }
     if snap.connected {
         ui.set_device_name(
             snap.name
@@ -348,9 +362,7 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
             )
             .into(),
         );
-        specs.push(
-            format!("CPID/BDID {} / {}", hex_opt(snap.cpid), hex_opt(snap.bdid)).into(),
-        );
+        specs.push(format!("CPID/BDID {} / {}", hex_opt(snap.cpid), hex_opt(snap.bdid)).into());
         specs.push(format!("USB      {}", snap.vid_pid).into());
         ui.set_specs(ModelRc::from(Rc::new(VecModel::from(specs))));
     }

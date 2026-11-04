@@ -29,7 +29,7 @@ fetch() {
   local url="$1" dest="$2"
   if [ ! -f "$dest" ]; then
     echo "==> downloading $(basename "$dest")"
-    curl -sSL -o "$dest" "$url"
+    curl --fail --location --retry 3 -o "$dest" "$url"
     chmod +x "$dest"
   fi
 }
@@ -38,7 +38,7 @@ fetch "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/l
 fetch "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage" "$AT"
 
 echo "==> building release binary"
-cargo build --release
+cargo build --release --locked
 
 echo "==> assembling AppDir"
 rm -rf "$APPDIR"
@@ -69,7 +69,8 @@ if [ -x "$TC/bin/idevicerestore" ] && [ -x "$TC/bin/irecovery" ]; then
   cp -a "$TC/lib/." "$APPDIR/usr/lib/" 2>/dev/null || true
   EXE_ARGS+=(--executable "$APPDIR/usr/bin/idevicerestore" --executable "$APPDIR/usr/bin/irecovery")
 else
-  echo "!! idevicerestore toolchain not found; the AppImage will lack restore support"
+  echo "ERROR: Apple restore toolchain missing. Run scripts/install-toolchain.sh first." >&2
+  exit 1
 fi
 
 # Custom AppRun: put bundled tools/libs on PATH and LD_LIBRARY_PATH.

@@ -69,6 +69,7 @@ struct Inner {
 
 pub struct Manager {
     inner: Mutex<Inner>,
+    usb_access: Mutex<()>,
     db: RwLock<Option<DeviceDatabase>>,
     firmware_cache: Mutex<HashMap<String, Vec<Firmware>>>,
     job_cancel: AtomicBool,
@@ -79,6 +80,7 @@ pub struct Manager {
 impl Manager {
     pub fn new() -> Arc<Self> {
         Arc::new(Manager {
+            usb_access: Mutex::new(()),
             inner: Mutex::new(Inner {
                 device: None,
                 irecv: None,
@@ -123,10 +125,24 @@ impl Manager {
     }
 
     fn poll_device(&self) {
+        // libirecovery probes must never claim USB while idevicerestore owns it.
+        let Ok(_usb) = self.usb_access.try_lock() else {
+            return;
+        };
+        if self.job_running.load(Ordering::SeqCst) {
+            return;
+        }
+
         let devices = usb::scan();
-        let restorable: Vec<UsbDevice> =
-            devices.iter().filter(|d| d.is_restorable()).cloned().collect();
-        let device = restorable.first().cloned().or_else(|| devices.first().cloned());
+        let restorable: Vec<UsbDevice> = devices
+            .iter()
+            .filter(|d| d.is_restorable())
+            .cloned()
+            .collect();
+        let device = restorable
+            .first()
+            .cloned()
+            .or_else(|| devices.first().cloned());
 
         let irecv = match &device {
             Some(d) if d.is_restorable() => irecovery::query(None),
@@ -488,6 +504,17 @@ impl Manager {
             }
         }
 
+        let _usb = match self.usb_access.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                self.finish_job("error", "USB access lock failed", None);
+                return;
+            }
+        };
+        if self.job_cancel.load(Ordering::Relaxed) {
+            self.finish_job("cancelled", "Restore cancelled", None);
+            return;
+        }
         let ecid = {
             let inner = match self.inner.lock() {
                 Ok(i) => i,
@@ -542,14 +569,20 @@ impl Manager {
             restore::RestoreEvent::Detail { text, .. } => {
                 self.update_job(|job| job.detail = text);
             }
-            restore::RestoreEvent::Log(text) => self.log_line(&text),
+            restore::RestoreEvent::Log(text) => {
+                self.update_job(|job| job.detail = text.clone());
+                self.log_line(&text);
+            }
         };
 
         match restore::run(&options, &on_event, &self.job_cancel) {
             Ok(0) => self.finish_job("done", "Restore completed successfully", Some(1.0)),
             Ok(code) => self.finish_job(
                 "error",
-                &format!("Restore failed (exit code {})", code),
+                &format!(
+                    "Restore failed (exit code {}). See activity for USB / device errors.",
+                    code
+                ),
                 None,
             ),
             Err(e) if e == restore::CANCELLED => {
