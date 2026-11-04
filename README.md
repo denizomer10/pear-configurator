@@ -1,154 +1,175 @@
+<div align="center">
+
 # PEAR Configurator
 
-A desktop app that restores Apple devices with a single click while they are in
-**DFU** or **recovery** mode.
+**A native Linux workspace for Apple device recovery.**
 
-- **Built with:** Rust + [Slint](https://slint.dev) (native desktop UI)
-- **Platform:** Linux, x86_64 and arm64 (Wayland / X11)
-- **Supported devices:** iPhone, iPad, iPod, Apple TV and **Apple Silicon Mac**
+Identify devices in DFU or recovery mode, select firmware, and follow the restore from one interface.
 
-Inspired by libimobiledevice and restorekit.
+[![Latest release](https://img.shields.io/github/v/release/denizomer10/pear-configurator?style=flat-square&color=b8dc88)](https://github.com/denizomer10/pear-configurator/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-b8dc88?style=flat-square)](LICENSE)
+![Built with Rust](https://img.shields.io/badge/built_with-Rust-dea584?style=flat-square)
+![UI: Slint](https://img.shields.io/badge/UI-Slint-b8dc88?style=flat-square)
 
-## What it does
+[**Download**](https://github.com/denizomer10/pear-configurator/releases/latest) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Report an issue](https://github.com/denizomer10/pear-configurator/issues)
 
-1. **Detects** an attached Apple device and its mode (DFU / recovery) instantly.
-2. **Identifies** the exact model automatically (e.g. Mac mini M1 → `Macmini9,1`).
-3. **Finds** the **signed** firmware versions for that device from ipsw.me.
-4. **Downloads** the selected IPSW if missing (resumes + verifies SHA-256).
-5. **Restores** it with `idevicerestore`, showing live progress.
+</div>
 
-Two restore modes are available:
+![PEAR Configurator with a device sidebar, firmware selection, restore controls, and activity log](docs/images/restore-workspace.png)
 
-| Button | Effect |
-| --- | --- |
-| **Erase & Install** | Erases all data and installs from scratch (`-e`) |
-| **Keep Data** | Update / revive (does not erase user data) |
+<p align="center"><sub>The native restore workspace, rendered with illustrative device and firmware data. This preview does not perform a restore.</sub></p>
 
-## Requirements
+## Overview
 
-- A Linux desktop (Wayland or X11)
-- The prebuilt **AppImage** — it bundles the GUI runtime, `idevicerestore`,
-  `irecovery` and every other dependency, so nothing has to be installed
-  separately.
-- Administrator permission **once**, on first launch, so the app can install its
-  USB access (udev) rule.
+PEAR Configurator brings device discovery, firmware downloads, and `idevicerestore` into a native desktop application built with Rust and [Slint](https://slint.dev). It runs on Linux with Wayland or X11.
 
-## Quick start (AppImage)
+- **Device identification** — detect DFU/recovery devices and resolve model, board, and chip information.
+- **Firmware selection** — retrieve available versions and signing status from [ipsw.me](https://ipsw.me).
+- **Resumable downloads** — download IPSW files with SHA-256 verification when a checksum is available.
+- **Restore visibility** — follow progress and inspect tool diagnostics in the Activity panel.
+- **USB access setup** — install the required udev rule through a one-time administrator prompt.
 
-Download the AppImage for your architecture (`x86_64` or `aarch64`) from the
-[Releases](https://github.com/denizomer10/pear-configurator/releases) page:
+The identification database covers iPhone, iPad, iPod, Apple TV, and Apple Silicon Mac models. Restore compatibility depends on the device, firmware signing status, and bundled Apple tools. Physical DFU restoration has not yet been verified for this release.
+
+## Getting started
+
+### 1. Download and launch
+
+Download the AppImage and checksum file from [GitHub Releases](https://github.com/denizomer10/pear-configurator/releases/latest), then run:
 
 ```sh
-chmod +x PEAR-Configurator-<arch>.AppImage
-./PEAR-Configurator-<arch>.AppImage
+sha256sum -c SHA256SUMS-x86_64.txt
+chmod +x PEAR-Configurator-x86_64.AppImage
+./PEAR-Configurator-x86_64.AppImage
 ```
 
-The AppImage bundles all runtime libraries and the `idevicerestore` toolchain,
-so nothing needs to be installed on the system (a desktop with Wayland or X11 is
-still required).
+**Current release: v0.2.2**
 
-On the first launch the app checks whether its USB access rule is installed. If
-it is missing, a setup window asks for administrator permission (the system
-password dialog), installs the rule for the running distribution (Arch, Debian,
-Fedora, …), reloads udev and closes automatically. The rule is written to
-`/etc/udev/rules.d/70-pear-apple.rules`. After that the app is ready to use — no
-manual udev or libimobiledevice setup is needed.
+| Requirement | Details |
+| --- | --- |
+| Architecture | x86_64; an ARM64 package is not included in v0.2.2 |
+| Linux runtime | glibc 2.43 or newer; this package was built locally on Ubuntu 26.04 |
+| Desktop | Wayland or X11 |
+| USB setup | Administrator authorization to install the access rule |
+| Connection | USB cable suitable for your device; internet access for firmware lookup and downloads |
 
-## Building from source (developers)
+The AppImage includes the application, `idevicerestore`, `irecovery`, and bundled shared libraries. It still relies on a compatible host glibc and desktop environment. The Apple tools in v0.2.2 are reused from the v0.2.0 release.
 
-The AppImage is the recommended way to run PEAR. To build locally:
+If your system cannot mount AppImages through FUSE, use:
+
+```sh
+APPIMAGE_EXTRACT_AND_RUN=1 ./PEAR-Configurator-x86_64.AppImage
+```
+
+### 2. Enable USB access
+
+On first launch, complete the USB access setup dialog. PEAR installs `/etc/udev/rules.d/70-pear-apple.rules` and reloads udev. Reconnect your device if access is not applied immediately.
+
+### 3. Restore your device
+
+1. Connect the device and put it into **DFU** or **recovery** mode.
+2. Check the detected model and mode in the device sidebar.
+3. Select the intended firmware version; check its signing status.
+4. Choose a restore mode and follow its progress in **Restore Status** and **Activity**.
+
+| Restore mode | Behavior |
+| --- | --- |
+| **Keep Data** | Attempts an update/revive without requesting an erase. Data preservation depends on the device and restore outcome. |
+| **Erase & Install** | Performs an erase restore. Requires confirmation and permanently removes device data. |
+
+> **Back up important data before restoring.** Erase & Install cannot be undone. Keep Data is not a backup or a guarantee of data preservation.
+
+## Troubleshooting
+
+### Device is visible in DFU, but restore cannot discover its mode
+
+USB discovery through sysfs can identify a device even when the restore tool cannot open it. Restart the updated application, complete USB access setup, and reconnect the cable.
+
+Older releases installed `99-pear-apple.rules`, which ran after systemd's seat access rules. The updated application installs `70-pear-apple.rules` before `73-seat-late.rules`. Device queries also pause during restore to avoid competing USB access.
+
+Review **Activity** for output from both restore streams. Logs are stored in `~/.pear/logs`.
+
+### AppImage reports a missing GLIBC version
+
+The v0.2.2 binary requires glibc 2.43 or newer. On an older distribution, build from source on that system rather than replacing its system glibc.
+
+### Window does not open
+
+Try selecting the software renderer:
+
+```sh
+SLINT_BACKEND=winit-software ./PEAR-Configurator-x86_64.AppImage
+```
+
+For bug reports, include your Linux distribution, app version, device model/mode, and relevant Activity output. Remove device identifiers and other personal information before sharing logs.
+
+## Build from source
+
+Install a current stable Rust toolchain. On Ubuntu/Debian, install the GUI build dependencies:
 
 ```sh
 sudo apt-get install -y build-essential pkg-config libfontconfig1-dev libfreetype-dev
-cargo build --release
-```
-
-For local development builds, `scripts/install-toolchain.sh` can build
-`idevicerestore` and `irecovery` into `~/.pear/toolchain`; the AppImage build
-bundles them automatically.
-
-To produce a self-contained AppImage:
-
-```sh
-scripts/build-appimage.sh   # -> dist/PEAR-Configurator-x86_64.AppImage
-```
-
-It uses `linuxdeploy` and `appimagetool` (downloaded automatically) and bundles
-the runtime libraries plus the Apple toolchain into a single file. The build is
-architecture-aware: it produces `PEAR-Configurator-x86_64.AppImage` on x86_64
-and `PEAR-Configurator-aarch64.AppImage` on aarch64.
-
-Release AppImages are built locally with `scripts/build-appimage.sh` and uploaded
-to GitHub Releases. The optional GitHub workflow only runs when manually dispatched.
-
-## Running
-
-```sh
+cargo build --release --locked
 ./target/release/pear-configurator
 ```
 
-If the window does not open (GPU-less environment), force the software renderer:
+A source build also needs `idevicerestore` and `irecovery` for restore operations. To build the Apple toolchain into `~/.pear/toolchain`:
 
 ```sh
-SLINT_BACKEND=winit-software ./target/release/pear-configurator
+bash scripts/install-toolchain.sh --deps
 ```
 
-Extra commands:
+The `--deps` option uses apt and asks for administrator authorization. With the dependencies already installed, run the script without that option for an unprivileged toolchain build.
+
+### Build an AppImage locally
 
 ```sh
-./target/release/pear-configurator --selftest   # detection + model + firmware test (no GUI)
-./target/release/pear-configurator --download   # pre-download and verify the IPSW
+bash scripts/build-appimage.sh
 ```
 
-## Usage
+The script downloads `linuxdeploy` and `appimagetool`, builds the release binary, and bundles the installed Apple toolchain. Packaging fails if either restore tool is missing.
 
-1. Connect the device and put it into **DFU** or **recovery** mode.
-2. The app automatically shows the device, its mode and model.
-3. Pick a version from the **Version (IPSW)** list (signed ones are recommended).
-4. Click **Erase & Install** (or **Keep Data**).
-5. If needed the IPSW is downloaded, then restore progress is shown live.
+The output is `dist/PEAR-Configurator-x86_64.AppImage` on x86_64, or `dist/PEAR-Configurator-aarch64.AppImage` when built natively on ARM64. The host environment determines the resulting runtime requirements.
 
-## File locations
+Releases are built locally and uploaded to GitHub Releases. The optional GitHub Actions workflow runs only when manually dispatched.
 
-| What | Where |
+### Development checks
+
+```sh
+cargo test --locked
+cargo run --example preview
+```
+
+The preview renders the actual Slint interface with sample data, without accessing a device. It writes default and compact PPM screenshots to `/tmp/pear-preview-*.ppm`.
+
+### Command-line utilities
+
+| Option | Purpose |
 | --- | --- |
-| Toolchain | `~/.pear/toolchain` |
-| Downloaded IPSW | `~/.pear/ipsw` |
-| Cache / database | `~/.pear/cache`, `~/.pear/data` |
-| Logs | `~/.pear/logs` |
+| `--version` | Print the application version without opening the GUI |
+| `--selftest` | Check device detection, identification, and firmware lookup without restoring |
+| `--download` | Download and verify the first firmware in the current device's sorted list without restoring |
 
-Override with the `PEAR_HOME` and `PEAR_DOWNLOAD_DIR` environment variables.
+## Data and configuration
 
-## Tests
+| Content | Default location |
+| --- | --- |
+| Apple toolchain | `~/.pear/toolchain` |
+| Downloaded firmware | `~/.pear/ipsw` |
+| Cache and device database | `~/.pear/cache`, `~/.pear/data` |
+| Restore logs | `~/.pear/logs` |
 
-```sh
-cargo test
-```
+| Environment variable | Purpose |
+| --- | --- |
+| `PEAR_HOME` | Override the application's base data directory |
+| `PEAR_DOWNLOAD_DIR` | Override the firmware download directory |
+| `PEAR_IDEVICERESTORE` | Use a specific `idevicerestore` executable |
+| `PEAR_IRECOVERY` | Use a specific `irecovery` executable |
 
-## Warnings
+## Acknowledgments
 
-- On first launch the app asks for administrator permission once to install its
-  udev rule. This is required for USB access to DFU/recovery devices.
-- **Erase & Install cannot be undone**; all data on the device is erased.
-- Apple Silicon Mac restore requires a recent `idevicerestore` (hence the tools
-  are built from source).
-- If `irecovery` is missing, the device is still identified over USB (CPID/BDID).
+Built on the work of the [libimobiledevice project](https://libimobiledevice.org/), including [idevicerestore](https://github.com/libimobiledevice/idevicerestore) and [libirecovery](https://github.com/libimobiledevice/libirecovery). Firmware metadata is provided by [ipsw.me](https://ipsw.me). The desktop interface uses [Slint](https://slint.dev).
 
 ## License
 
-**MIT** — see [LICENSE](LICENSE).
-
-## USB access troubleshooting
-
-If a device appears in DFU but restore reports that it cannot discover its mode,
-restart the updated app and complete USB access setup. Older releases installed
-`99-pear-apple.rules`, which ran too late for systemd's seat ACLs. The updated
-app installs `70-pear-apple.rules` before `73-seat-late.rules`. Reconnect the USB
-cable if access is still denied after installation. Detection via sysfs alone
-does not prove that the restore tool can open the USB device.
-
-Device queries pause during restore to avoid competing for the USB interface.
-Both stdout and stderr are shown in Activity, including USB access errors.
-
-For a hardware-free UI preview, run `cargo run --example preview`. This writes
-PPM screenshots at the default and compact window sizes to `/tmp/pear-preview-*.ppm`.
+PEAR Configurator is available under the [MIT License](LICENSE). Bundled third-party components retain their respective licenses.

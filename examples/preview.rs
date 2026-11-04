@@ -33,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.set_specs(strings(&[
         "Model    Macmini9,1",
         "Board    J274AP",
-        "ECID     0x19492036c0801e",
+        "ECID     0x0123456789abcdef",
         "CPID/BDID 0x8103 / 0x22",
         "USB      05ac:1227",
     ]));
