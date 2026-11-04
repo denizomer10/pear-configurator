@@ -327,7 +327,11 @@ impl Manager {
             .as_ref()
             .map(|i| i.model.as_str())
             .filter(|m| !m.is_empty());
-        db.resolve(cpid, bdid, model, None)
+        let identifier = irecv
+            .as_ref()
+            .map(|i| i.identifier.as_str())
+            .filter(|id| !id.is_empty());
+        db.resolve(cpid, bdid, model, identifier)
     }
 
     fn ensure_firmware(&self, identifier: &str) {

@@ -19,6 +19,7 @@ pub struct IRecoveryInfo {
     pub bdid: Option<u32>,
     pub ecid: Option<u64>,
     pub model: String,
+    pub identifier: String,
     pub srtg: String,
 }
 
@@ -67,6 +68,7 @@ pub fn parse_query_output(text: &str) -> IRecoveryInfo {
                 "bdid" => info.bdid = parse_hex_u32(value),
                 "ecid" => info.ecid = parse_hex_u64(value),
                 "model" => info.model = value.to_string(),
+                "product" => info.identifier = value.to_string(),
                 "srtg" => info.srtg = value.to_string(),
                 _ => {}
             }
@@ -122,12 +124,14 @@ mod tests {
 
     #[test]
     fn parse_sample() {
-        let sample = "CPID: 8103\nBDID: 22\nECID: 00001234567890ab\nMODEL: J274AP\n";
+        let sample =
+            "CPID: 8103\nBDID: 22\nECID: 00001234567890ab\nMODEL: J274AP\nPRODUCT: Macmini9,1\n";
         let info = parse_query_output(sample);
         assert_eq!(info.cpid, Some(0x8103));
         assert_eq!(info.bdid, Some(0x22));
         assert_eq!(info.ecid, Some(0x0012_3456_7890_ab));
         assert_eq!(info.model, "J274AP");
+        assert_eq!(info.identifier, "Macmini9,1");
     }
 
     #[test]
