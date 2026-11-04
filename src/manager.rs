@@ -12,7 +12,7 @@ use std::time::Duration;
 use crate::database::{DeviceDatabase, DeviceEntry};
 use crate::ipsw::Firmware;
 use crate::usb::UsbDevice;
-use crate::{config, download, ipsw, irecovery, restore, usb};
+use crate::{config, download, ipsw, irecovery, mobile, restore, usb};
 
 const DETECT_INTERVAL: Duration = Duration::from_millis(1500);
 const MAX_LOG_LINES: usize = 500;
@@ -42,6 +42,8 @@ pub struct ToolsSnapshot {
 #[derive(Default, Clone)]
 pub struct Snapshot {
     pub connected: bool,
+    pub can_enter_recovery: bool,
+    pub recovery_hint: String,
     pub mode: String,
     pub mode_label: String,
     pub is_restorable: bool,
@@ -64,6 +66,7 @@ struct Inner {
     device: Option<UsbDevice>,
     irecv: Option<irecovery::IRecoveryInfo>,
     entry: Option<DeviceEntry>,
+    mobile: Option<mobile::MobileInfo>,
     job: JobSnapshot,
 }
 
@@ -85,6 +88,7 @@ impl Manager {
                 device: None,
                 irecv: None,
                 entry: None,
+                mobile: None,
                 job: JobSnapshot::default(),
             }),
             db: RwLock::new(None),
@@ -134,22 +138,43 @@ impl Manager {
         }
 
         let devices = usb::scan();
-        let restorable: Vec<UsbDevice> = devices
-            .iter()
-            .filter(|d| d.is_restorable())
-            .cloned()
-            .collect();
-        let device = restorable
-            .first()
-            .cloned()
-            .or_else(|| devices.first().cloned());
+        let device = devices.into_iter().min_by_key(|d| {
+            if d.is_restorable() {
+                0
+            } else if d.mode == "normal" {
+                1
+            } else {
+                2
+            }
+        });
 
         let irecv = match &device {
-            Some(d) if d.is_restorable() => irecovery::query(None),
+            Some(d) if d.is_restorable() => irecovery::query(d.ecid),
             _ => None,
         };
 
-        let entry = self.resolve_entry(&device, &irecv);
+        let normal_info = device
+            .as_ref()
+            .filter(|d| d.mode == "normal")
+            .and_then(|d| mobile::query(&d.serial));
+        let entry = if let Some(info) = &normal_info {
+            self.db
+                .read()
+                .ok()
+                .and_then(|db| {
+                    db.as_ref()
+                        .and_then(|db| db.lookup(&info.identifier).cloned())
+                })
+                .or_else(|| {
+                    Some(DeviceEntry {
+                        identifier: info.identifier.clone(),
+                        name: info.identifier.clone(),
+                        boardconfig: info.board.clone(),
+                    })
+                })
+        } else {
+            self.resolve_entry(&device, &irecv)
+        };
         if let Some(entry) = &entry {
             self.ensure_firmware(&entry.identifier);
         }
@@ -158,6 +183,7 @@ impl Manager {
             inner.device = device;
             inner.irecv = irecv;
             inner.entry = entry;
+            inner.mobile = normal_info;
         }
     }
 
@@ -200,7 +226,7 @@ impl Manager {
 
     // -- reading ---------------------------------------------------------
     pub fn snapshot(&self) -> Snapshot {
-        let (device, irecv, entry, job) = {
+        let (device, irecv, entry, normal_info, job) = {
             let inner = match self.inner.lock() {
                 Ok(i) => i,
                 Err(_) => return Snapshot::default(),
@@ -209,6 +235,7 @@ impl Manager {
                 inner.device.clone(),
                 inner.irecv.clone(),
                 inner.entry.clone(),
+                inner.mobile.clone(),
                 inner.job.clone(),
             )
         };
@@ -225,13 +252,28 @@ impl Manager {
         };
 
         snap.connected = true;
+        let normal_mobile = device.mode == "normal" && mobile::usb_udid(&device.serial).is_some();
+        snap.can_enter_recovery = normal_mobile
+            && mobile::find_tool("ideviceenterrecovery").is_some()
+            && !self.job_running.load(Ordering::SeqCst);
+        snap.recovery_hint = if normal_mobile {
+            if mobile::find_tool("ideviceenterrecovery").is_none() {
+                "Recovery tool missing. Install libimobiledevice-utils or rebuild the Apple toolchain."
+            } else {
+                "Unlock the device and accept Trust if asked. Recovery does not erase data. DFU requires device buttons."
+            }
+        } else { "" }.into();
         snap.mode = device.mode.clone();
         snap.mode_label = device.mode_label().to_string();
         snap.is_restorable = device.is_restorable();
         snap.product = device.product.clone();
         snap.vid_pid = device.vid_pid();
         snap.serial = device.serial.clone();
-        snap.ecid = irecv.as_ref().and_then(|i| i.ecid).or(device.ecid);
+        snap.ecid = irecv
+            .as_ref()
+            .and_then(|i| i.ecid)
+            .or_else(|| normal_info.as_ref().and_then(|i| i.ecid))
+            .or(device.ecid);
         snap.cpid = irecv.as_ref().and_then(|i| i.cpid).or(device.cpid);
         snap.bdid = irecv.as_ref().and_then(|i| i.bdid).or(device.bdid);
         snap.boardconfig = entry
@@ -337,6 +379,94 @@ impl Manager {
             ipsw_path.to_string(),
         );
         thread::spawn(move || me.run_restore(erase, &path, &id, &ver, &bid, ignore_errors));
+        true
+    }
+
+    /// Request Recovery only for the selected normal-mode mobile device.
+    /// Never runs automatically during detection and never starts an erase.
+    pub fn start_enter_recovery(self: &Arc<Self>) -> bool {
+        if !self.snapshot().can_enter_recovery || !self.begin_job("recovery") {
+            return false;
+        }
+        let me = Arc::clone(self);
+        thread::spawn(move || {
+            let Ok(_usb) = me.usb_access.lock() else {
+                me.finish_job("error", "USB access lock failed", None);
+                return;
+            };
+            let selected = me.inner.lock().ok().and_then(|inner| inner.device.clone());
+            let Some(selected) = selected.filter(|d| d.mode == "normal") else {
+                me.finish_job(
+                    "error",
+                    "The selected device is no longer in Normal Mode",
+                    None,
+                );
+                return;
+            };
+            let expected_ecid = me.snapshot().ecid;
+            // Do not reboot a different device if the selection went stale.
+            if !usb::scan().iter().any(|d| {
+                d.sysfs_path == selected.sysfs_path
+                    && d.serial == selected.serial
+                    && d.mode == "normal"
+            }) {
+                me.finish_job("error", "Device disconnected. Reconnect and retry.", None);
+                return;
+            }
+            if me.job_cancel.load(Ordering::Relaxed) {
+                me.finish_job("cancelled", "Recovery request cancelled", None);
+                return;
+            }
+            me.update_job(|job| job.message = "Requesting Recovery Mode…".into());
+            match mobile::enter_recovery(&selected.serial) {
+                Err(error) => {
+                    me.log_line(&error);
+                    me.finish_job(
+                        "error",
+                        "Could not enter Recovery Mode. See Activity.",
+                        None,
+                    );
+                    return;
+                }
+                Ok(output) => {
+                    me.log_line(&output);
+                }
+            }
+            me.update_job(|job| job.message = "Waiting for Recovery Mode…".into());
+            let deadline = std::time::Instant::now() + Duration::from_secs(30);
+            while std::time::Instant::now() < deadline {
+                if me.job_cancel.load(Ordering::Relaxed) {
+                    me.finish_job(
+                        "cancelled",
+                        "Stopped waiting; the recovery request was already sent",
+                        None,
+                    );
+                    return;
+                }
+                // Prefer ECID: switching USB speed can change the bus and sysfs path.
+                if let Some(device) = usb::scan().into_iter().find(|d| {
+                    d.mode == "recovery"
+                        && match (expected_ecid, d.ecid) {
+                            (Some(expected), Some(actual)) => expected == actual,
+                            _ => d.sysfs_path == selected.sysfs_path,
+                        }
+                }) {
+                    let info = irecovery::query(device.ecid);
+                    let entry = me.resolve_entry(&Some(device.clone()), &info);
+                    if let Ok(mut inner) = me.inner.lock() {
+                        inner.device = Some(device);
+                        inner.irecv = info;
+                        inner.entry = entry;
+                        inner.mobile = None;
+                    }
+                    me.log_line("Recovery Mode detected. Choose firmware to restore when ready.");
+                    me.finish_job("done", "Device is in Recovery Mode", Some(1.0));
+                    return;
+                }
+                thread::sleep(Duration::from_millis(500));
+            }
+            me.finish_job("error", "Recovery requested, but the mode change was not detected. Check the USB connection.", None);
+        });
         true
     }
 

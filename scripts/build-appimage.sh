@@ -63,15 +63,16 @@ EOF
 # Bundle the Apple toolchain when available.
 EXE_ARGS=(--executable "$APPDIR/usr/bin/pear-configurator")
 TC="$HOME/.pear/toolchain"
-if [ -x "$TC/bin/idevicerestore" ] && [ -x "$TC/bin/irecovery" ]; then
-  echo "==> bundling Apple toolchain from $TC"
-  cp -a "$TC/bin/idevicerestore" "$TC/bin/irecovery" "$APPDIR/usr/bin/"
-  cp -a "$TC/lib/." "$APPDIR/usr/lib/" 2>/dev/null || true
-  EXE_ARGS+=(--executable "$APPDIR/usr/bin/idevicerestore" --executable "$APPDIR/usr/bin/irecovery")
-else
-  echo "ERROR: Apple restore toolchain missing. Run scripts/install-toolchain.sh first." >&2
-  exit 1
-fi
+echo "==> bundling Apple toolchain from $TC"
+for tool in idevicerestore irecovery ideviceinfo ideviceenterrecovery; do
+  if [ ! -x "$TC/bin/$tool" ]; then
+    echo "ERROR: $tool missing. Run scripts/install-toolchain.sh first." >&2
+    exit 1
+  fi
+  cp -a "$TC/bin/$tool" "$APPDIR/usr/bin/"
+  EXE_ARGS+=(--executable "$APPDIR/usr/bin/$tool")
+done
+cp -a "$TC/lib/." "$APPDIR/usr/lib/"
 
 # Custom AppRun: put bundled tools/libs on PATH and LD_LIBRARY_PATH.
 cat > "$TOOLS/AppRun" <<'EOF'
@@ -81,6 +82,8 @@ export PATH="$HERE/usr/bin:$PATH"
 export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
 [ -x "$HERE/usr/bin/idevicerestore" ] && export PEAR_IDEVICERESTORE="$HERE/usr/bin/idevicerestore"
 [ -x "$HERE/usr/bin/irecovery" ] && export PEAR_IRECOVERY="$HERE/usr/bin/irecovery"
+[ -x "$HERE/usr/bin/ideviceinfo" ] && export PEAR_IDEVICEINFO="$HERE/usr/bin/ideviceinfo"
+[ -x "$HERE/usr/bin/ideviceenterrecovery" ] && export PEAR_IDEVICEENTERRECOVERY="$HERE/usr/bin/ideviceenterrecovery"
 exec "$HERE/usr/bin/pear-configurator" "$@"
 EOF
 chmod +x "$TOOLS/AppRun"

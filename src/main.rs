@@ -6,6 +6,7 @@ mod download;
 mod ipsw;
 mod irecovery;
 mod manager;
+mod mobile;
 mod net;
 mod restore;
 mod udev;
@@ -121,6 +122,13 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let manager = manager.clone();
         ui.on_clear_log(move || manager.clear_log());
+    }
+
+    {
+        let manager = manager.clone();
+        ui.on_recovery_clicked(move || {
+            manager.start_enter_recovery();
+        });
     }
 
     // --- Refresh the UI periodically ---
@@ -323,6 +331,9 @@ fn selftest() {
 
 fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
     ui.set_device_connected(snap.connected);
+    ui.set_normal_mobile(snap.mode == "normal" && mobile::usb_udid(&snap.serial).is_some());
+    ui.set_can_enter_recovery(snap.can_enter_recovery);
+    ui.set_recovery_hint(snap.recovery_hint.clone().into());
     ui.set_mode_label(snap.mode_label.clone().into());
     ui.set_mode_color(mode_color(&snap.mode));
     ui.set_tools_ready(snap.tools.ready);
@@ -362,7 +373,9 @@ fn apply_snapshot(ui: &AppWindow, snap: &Snapshot) {
             )
             .into(),
         );
-        specs.push(format!("CPID/BDID {} / {}", hex_opt(snap.cpid), hex_opt(snap.bdid)).into());
+        if snap.cpid.is_some() || snap.bdid.is_some() {
+            specs.push(format!("CPID/BDID {} / {}", hex_opt(snap.cpid), hex_opt(snap.bdid)).into());
+        }
         specs.push(format!("USB      {}", snap.vid_pid).into());
         ui.set_specs(ModelRc::from(Rc::new(VecModel::from(specs))));
     }

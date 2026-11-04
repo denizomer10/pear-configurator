@@ -96,7 +96,13 @@ pub fn classify_mode(product: &str, product_id: u16) -> &'static str {
     if RESTORE_PIDS.contains(&product_id) {
         return "restore";
     }
-    if text.contains("apple mobile device") {
+    // Normal-mode usbmux product range used by upstream usbmuxd.
+    if (0x1290..=0x12af).contains(&product_id)
+        || text.contains("iphone")
+        || text.contains("ipad")
+        || text.contains("ipod")
+        || text.contains("apple mobile device")
+    {
         return "normal";
     }
     "unknown"
@@ -201,9 +207,18 @@ mod tests {
 
     #[test]
     fn mode_from_product_string() {
-        assert_eq!(classify_mode("Apple Mobile Device (DFU Mode)", 0x1227), "dfu");
-        assert_eq!(classify_mode("Apple Mobile Device (Recovery Mode)", 0x1281), "recovery");
-        assert_eq!(classify_mode("Apple Mobile Device (Restore Mode)", 0x1223), "restore");
+        assert_eq!(
+            classify_mode("Apple Mobile Device (DFU Mode)", 0x1227),
+            "dfu"
+        );
+        assert_eq!(
+            classify_mode("Apple Mobile Device (Recovery Mode)", 0x1281),
+            "recovery"
+        );
+        assert_eq!(
+            classify_mode("Apple Mobile Device (Restore Mode)", 0x1223),
+            "restore"
+        );
         assert_eq!(classify_mode("Apple Mobile Device", 0x12a8), "normal");
         assert_eq!(classify_mode("Other", 0x0001), "unknown");
     }
@@ -212,6 +227,18 @@ mod tests {
     fn mode_from_pid_fallback() {
         assert_eq!(classify_mode("", 0x1227), "dfu");
         assert_eq!(classify_mode("", 0x1281), "recovery");
+    }
+
+    #[test]
+    fn normal_mobile_devices_and_accessories() {
+        for name in ["iPhone", "iPad", "iPod", "Apple Mobile Device"] {
+            assert_eq!(classify_mode(name, 0x12a8), "normal");
+            assert_eq!(classify_mode(name, 0x1227), "dfu");
+            assert_eq!(classify_mode(name, 0x1281), "recovery");
+        }
+        assert_eq!(classify_mode("", 0x12a8), "normal");
+        assert_eq!(classify_mode("Apple Keyboard", 0x024f), "unknown");
+        assert_eq!(classify_mode("Apple Watch", 0x8600), "unknown");
     }
 
     #[test]

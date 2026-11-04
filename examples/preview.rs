@@ -54,5 +54,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         bytes.extend_from_slice(buffer.as_bytes());
         std::fs::write(format!("/tmp/pear-preview-{name}.ppm"), bytes)?;
     }
+    ui.set_device_name("iPhone 14 Pro".into());
+    ui.set_mode_label("Normal Mode".into());
+    ui.set_firmware_model(strings(&["Illustrative signed iPhone firmware"]));
+    ui.set_log_lines(strings(&[
+        "Preview only — no device operations are performed.",
+        "Device identified: iPhone15,2 · Normal Mode",
+    ]));
+    ui.set_normal_mobile(true);
+    ui.set_can_enter_recovery(true);
+    ui.set_can_restore(false);
+    ui.set_recovery_hint("Unlock the device and accept Trust if asked. Recovery does not erase data. DFU requires device buttons.".into());
+    ui.set_specs(strings(&[
+        "Model    iPhone15,2",
+        "Board    D73AP",
+        "ECID     0x0123456789abcdef",
+        "USB      05ac:12a8",
+    ]));
+    for (name, width, height) in [("normal", 1140, 840), ("normal-compact", 980, 780)] {
+        window.set_size(slint::PhysicalSize::new(width, height));
+        let mut buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(width, height);
+        window.request_redraw();
+        window.draw_if_needed(|renderer| {
+            renderer.render(buffer.make_mut_slice(), width as usize);
+        });
+        let mut bytes = format!("P6\n{} {}\n255\n", width, height).into_bytes();
+        bytes.extend_from_slice(buffer.as_bytes());
+        std::fs::write(format!("/tmp/pear-preview-{name}.ppm"), bytes)?;
+    }
     Ok(())
 }

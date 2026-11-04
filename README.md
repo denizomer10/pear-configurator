@@ -31,6 +31,14 @@ PEAR Configurator brings device discovery, firmware downloads, and `ideviceresto
 
 The identification database covers iPhone, iPad, iPod, Apple TV, and Apple Silicon Mac models. Restore compatibility depends on the device, firmware signing status, and bundled Apple tools. Physical DFU restoration has not yet been verified for this release.
 
+### New in the development build (v0.2.3)
+
+- Normal-mode iPhone/iPad detection with **Normal Mode**, **Recovery Mode**, and **DFU Mode** labels.
+- **Enter Recovery** requests a restart of the selected normal-mode device and waits for Recovery Mode to appear. It does not start a restore or erase.
+- Direct software entry into DFU is not provided; DFU requires the physical button sequence for the device.
+
+Normal-mode identification uses `ideviceinfo`; the recovery button uses `ideviceenterrecovery`. Both are included by the updated AppImage build script. The host must run `usbmuxd`; unlocking the device and accepting Trust may be required. The published v0.2.2 package does not include these new controls.
+
 ## Getting started
 
 ### 1. Download and launch
@@ -127,7 +135,7 @@ The `--deps` option uses apt and asks for administrator authorization. With the 
 bash scripts/build-appimage.sh
 ```
 
-The script downloads `linuxdeploy` and `appimagetool`, builds the release binary, and bundles the installed Apple toolchain. Packaging fails if either restore tool is missing.
+The script downloads `linuxdeploy` and `appimagetool`, builds the release binary, and bundles the installed Apple toolchain. Packaging fails if any of `idevicerestore`, `irecovery`, `ideviceinfo`, or `ideviceenterrecovery` is missing.
 
 The output is `dist/PEAR-Configurator-x86_64.AppImage` on x86_64, or `dist/PEAR-Configurator-aarch64.AppImage` when built natively on ARM64. The host environment determines the resulting runtime requirements.
 
@@ -165,6 +173,8 @@ The preview renders the actual Slint interface with sample data, without accessi
 | `PEAR_DOWNLOAD_DIR` | Override the firmware download directory |
 | `PEAR_IDEVICERESTORE` | Use a specific `idevicerestore` executable |
 | `PEAR_IRECOVERY` | Use a specific `irecovery` executable |
+| `PEAR_IDEVICEINFO` | Use a specific `ideviceinfo` executable |
+| `PEAR_IDEVICEENTERRECOVERY` | Use a specific `ideviceenterrecovery` executable |
 
 ## Acknowledgments
 

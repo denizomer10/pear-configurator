@@ -98,6 +98,11 @@ export component AppWindow inherits Window {
     in-out property <color> mode-color: #6d8bff;
     in-out property <[string]> specs: [];
 
+    in-out property <bool> normal-mobile: false;
+    in-out property <bool> can-enter-recovery: false;
+    in-out property <string> recovery-hint: "";
+    callback recovery-clicked();
+
     // Tools
     in-out property <string> tools-summary: "";
     in-out property <bool> tools-ready: false;
@@ -157,18 +162,29 @@ export component AppWindow inherits Window {
                 Pill { label: root.device-connected ? "Device connected" : "Waiting for device"; dot-color: root.device-connected ? #d7f9a5 : #8fa49a; }
                 Text { text: "01 / CONNECT"; color: #d7f9a5; font-size: 11px; font-weight: 600; }
                 Rectangle {
-                    height: 104px;
+                    height: root.normal-mobile ? 72px : 104px;
                     border-radius: 14px;
                     background: #203229;
-                    Rectangle { x: (parent.width - 64px) / 2; y: 22px; width: 64px; height: 43px; border-radius: 6px; border-width: 2px; border-color: #d7f9a5; }
-                    Rectangle { x: (parent.width - 24px) / 2; y: 72px; width: 24px; height: 4px; border-radius: 2px; background: #d7f9a5; }
+                    Rectangle { x: (parent.width - 64px) / 2; y: root.normal-mobile ? 10px : 22px; width: 64px; height: 43px; border-radius: 6px; border-width: 2px; border-color: #d7f9a5; }
+                    Rectangle { x: (parent.width - 24px) / 2; y: root.normal-mobile ? 58px : 72px; width: 24px; height: 4px; border-radius: 2px; background: #d7f9a5; }
                 }
                 Text { text: root.device-connected ? root.device-name : "Connect your device"; color: #f0f5ed; font-size: 20px; font-weight: 600; wrap: word-wrap; }
                 Pill { label: root.device-connected ? root.mode-label : "USB connection required"; dot-color: root.mode-color; }
+                if root.normal-mobile: VerticalLayout {
+                    spacing: 8px;
+                    ActionButton {
+                        title: "Enter Recovery";
+                        subtitle: "Restart into Recovery Mode";
+                        base-color: #345344;
+                        active: root.can-enter-recovery && !root.setup-visible && !root.confirm-visible && !root.job-running;
+                        clicked => { root.recovery-clicked(); }
+                    }
+                    Text { text: root.recovery-hint; color: #8fa49a; font-size: 11px; wrap: word-wrap; }
+                }
                 for spec in root.specs: Text { text: spec; color: #9eb2a6; font-size: 11px; wrap: word-wrap; }
                 Rectangle { vertical-stretch: 1; }
-                Text { text: "Before you begin"; color: #edf3e9; font-size: 13px; font-weight: 600; }
-                Text { text: "Use a reliable USB cable. Keep the device connected throughout the restore."; color: #8fa49a; font-size: 12px; wrap: word-wrap; }
+                if !root.normal-mobile: Text { text: "Before you begin"; color: #edf3e9; font-size: 13px; font-weight: 600; }
+                if !root.normal-mobile: Text { text: "Use a reliable USB cable. Keep the device connected throughout the restore."; color: #8fa49a; font-size: 12px; wrap: word-wrap; }
                 Rectangle { height: 1px; background: #293b33; }
                 Text { text: root.tools-ready ? "●  Restore tools available" : "●  Restore tools missing"; color: root.tools-ready ? #d7f9a5 : #ffad93; font-size: 11px; }
             }
@@ -202,7 +218,7 @@ export component AppWindow inherits Window {
                         current-index <=> root.firmware-index;
                         selected(value) => { root.firmware-selected(root.firmware-index); }
                     }
-                    Text { text: root.device-connected ? "Select firmware, then choose how to restore your device." : "Connect a device in DFU or recovery mode to load firmware."; color: #91a598; font-size: 12px; wrap: word-wrap; }
+                    Text { text: root.normal-mobile ? "Enter Recovery Mode using the device panel before restoring." : root.device-connected ? "Select firmware, then choose how to restore your device." : "Connect a device in DFU or recovery mode to load firmware."; color: #91a598; font-size: 12px; wrap: word-wrap; }
                     HorizontalLayout {
                         spacing: 12px;
                         ActionButton { horizontal-stretch: 1; title: "Keep Data"; subtitle: "Attempt update / revive"; base-color: #345344; active: root.can-restore; clicked => { root.update-clicked(); } }
