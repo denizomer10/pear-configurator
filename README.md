@@ -78,8 +78,8 @@ the runtime libraries plus the Apple toolchain into a single file. The build is
 architecture-aware: it produces `PEAR-Configurator-x86_64.AppImage` on x86_64
 and `PEAR-Configurator-aarch64.AppImage` on aarch64.
 
-Prebuilt AppImages for both architectures are produced by CI
-(`.github/workflows/build-appimage.yml`) on every `v*` tag.
+Release AppImages are built locally with `scripts/build-appimage.sh` and uploaded
+to GitHub Releases. The optional GitHub workflow only runs when manually dispatched.
 
 ## Running
 

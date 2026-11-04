@@ -1,7 +1,5 @@
 name: Build and release AppImages
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 permissions:
   contents: read
